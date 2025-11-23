@@ -308,15 +308,33 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
         var webProxy = new WebProxy($"socks5://{Global.Loopback}:{it.Port}");
         var url = _config.SpeedTestItem.SpeedTestUrl;
         var timeout = _config.SpeedTestItem.SpeedTestTimeout;
+        var lastSpeed = 0m;
+        
         await downloadHandle.DownloadDataAsync(url, webProxy, timeout, async (success, msg) =>
         {
-            decimal.TryParse(msg, out var dec);
-            if (dec > 0)
+            // 尝试解析为速度值
+            if (decimal.TryParse(msg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var dec))
             {
-                ProfileExManager.Instance.SetTestSpeed(it.IndexId, dec);
+                // 成功解析为数字，且大于0
+                if (dec > 0)
+                {
+                    lastSpeed = dec;
+                    ProfileExManager.Instance.SetTestSpeed(it.IndexId, dec);
+                }
+                await UpdateFunc(it.IndexId, "", msg);
             }
-            await UpdateFunc(it.IndexId, "", msg);
+            else
+            {
+                // 不是数字，可能是错误消息，只更新显示，不更新速度
+                await UpdateFunc(it.IndexId, "", msg);
+            }
         });
+        
+        // 如果最终没有设置速度，确保设置为0（表示测试失败或无法计算）
+        if (lastSpeed == 0)
+        {
+            ProfileExManager.Instance.SetTestSpeed(it.IndexId, 0);
+        }
     }
 
     private async Task<int> GetTcpingTime(string url, int port)

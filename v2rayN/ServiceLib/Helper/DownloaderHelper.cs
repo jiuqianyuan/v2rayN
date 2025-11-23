@@ -72,7 +72,7 @@ public class DownloaderHelper
         };
 
         var totalDatetime = DateTime.Now;
-        var totalSecond = 0;
+        var lastUpdateTime = DateTime.Now;
         var hasValue = false;
         double maxSpeed = 0;
         await using var downloader = new Downloader.DownloadService(downloadOpt);
@@ -85,30 +85,60 @@ public class DownloaderHelper
         //};
         downloader.DownloadProgressChanged += (sender, value) =>
         {
-            var ts = DateTime.Now - totalDatetime;
-            if (progress != null && ts.Seconds > totalSecond)
+            // 每次进度更新时都检查速度，不限制在秒边界
+            if (progress != null && value.BytesPerSecondSpeed > 0)
             {
                 hasValue = true;
-                totalSecond = ts.Seconds;
+                // 更新最大速度
                 if (value.BytesPerSecondSpeed > maxSpeed)
                 {
                     maxSpeed = value.BytesPerSecondSpeed;
+                }
+                
+                // 每0.5秒更新一次显示，避免过于频繁
+                var ts = DateTime.Now - lastUpdateTime;
+                if (ts.TotalMilliseconds >= 500)
+                {
+                    lastUpdateTime = DateTime.Now;
                     var speed = (maxSpeed / 1000 / 1000).ToString("#0.0");
                     progress.Report(speed);
                 }
             }
         };
+        
         downloader.DownloadFileCompleted += (sender, value) =>
         {
             if (progress != null)
             {
-                if (!hasValue && value.Error != null)
+                if (value.Error != null)
                 {
-                    progress.Report(value.Error?.Message);
+                    // 有错误时报告错误消息
+                    progress.Report(value.Error.Message);
+                }
+                else if (hasValue && maxSpeed > 0)
+                {
+                    // 下载完成时，确保报告最终的最大速度
+                    var finalSpeed = (maxSpeed / 1000 / 1000).ToString("#0.0");
+                    progress.Report(finalSpeed);
+                }
+                else
+                {
+                    // 没有速度数据，可能是下载太快或出现问题
+                    var totalTime = (DateTime.Now - totalDatetime).TotalSeconds;
+                    if (totalTime > 0)
+                    {
+                        // 尝试从总下载量计算平均速度（如果可用）
+                        // 这里暂时报告0，表示无法计算速度
+                        progress.Report("0");
+                    }
+                    else
+                    {
+                        progress.Report("0");
+                    }
                 }
             }
         };
-        //progress.Report("......");
+        
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(timeout * 1000);
         await using var stream = await downloader.DownloadFileTaskAsync(address: url, cts.Token);
