@@ -83,19 +83,20 @@ public class DownloaderHelper
         //        progress.Report("Start download data...");
         //    }
         //};
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(timeout * 1000);
+        
         downloader.DownloadProgressChanged += (sender, value) =>
         {
-            // 每次进度更新时都检查速度，不限制在秒边界
             if (progress != null && value.BytesPerSecondSpeed > 0)
             {
                 hasValue = true;
-                // 更新最大速度
                 if (value.BytesPerSecondSpeed > maxSpeed)
                 {
                     maxSpeed = value.BytesPerSecondSpeed;
                 }
                 
-                // 每0.5秒更新一次显示，避免过于频繁
                 var ts = DateTime.Now - lastUpdateTime;
                 if (ts.TotalMilliseconds >= 500)
                 {
@@ -112,37 +113,57 @@ public class DownloaderHelper
             {
                 if (value.Error != null)
                 {
-                    // 有错误时报告错误消息
-                    progress.Report(value.Error.Message);
+                    // For cancellation/timeout, show last max speed instead of error text
+                    if (value.Error is OperationCanceledException || value.Error is TaskCanceledException)
+                    {
+                        if (hasValue && maxSpeed > 0)
+                        {
+                            var finalSpeed = (maxSpeed / 1000 / 1000).ToString("#0.0");
+                            progress.Report(finalSpeed);
+                        }
+                        else
+                        {
+                            progress.Report("0");
+                        }
+                    }
+                    else
+                    {
+                        // Non-cancellation errors: keep reporting the error message
+                        progress.Report(value.Error.Message);
+                    }
                 }
                 else if (hasValue && maxSpeed > 0)
                 {
-                    // 下载完成时，确保报告最终的最大速度
                     var finalSpeed = (maxSpeed / 1000 / 1000).ToString("#0.0");
                     progress.Report(finalSpeed);
                 }
                 else
                 {
-                    // 没有速度数据，可能是下载太快或出现问题
-                    var totalTime = (DateTime.Now - totalDatetime).TotalSeconds;
-                    if (totalTime > 0)
-                    {
-                        // 尝试从总下载量计算平均速度（如果可用）
-                        // 这里暂时报告0，表示无法计算速度
-                        progress.Report("0");
-                    }
-                    else
-                    {
-                        progress.Report("0");
-                    }
+                    progress.Report("0");
                 }
             }
         };
         
-        using var cts = new CancellationTokenSource();
-        cts.CancelAfter(timeout * 1000);
-        await using var stream = await downloader.DownloadFileTaskAsync(address: url, cts.Token);
-
+        try
+        {
+            await using var stream = await downloader.DownloadFileTaskAsync(address: url, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Download was cancelled due to timeout. Ensure we report the max observed speed (if any)
+            if (progress != null)
+            {
+                if (hasValue && maxSpeed > 0)
+                {
+                    var finalSpeed = (maxSpeed / 1000 / 1000).ToString("#0.0");
+                    progress.Report(finalSpeed);
+                }
+                else
+                {
+                    progress.Report("0");
+                }
+            }
+        }
         downloadOpt = null;
     }
 
