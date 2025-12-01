@@ -270,6 +270,7 @@
                         <Separator />
                         <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
                             <MenuItem
+                                Visibility="Collapsed"
                                 x:Name="menuPromotion"
                                 Padding="{StaticResource MarginLeftRight8}"
                                 AutomationProperties.Name="{x:Static resx:ResUI.menuPromotion}">
@@ -284,7 +285,7 @@
                                 </MenuItem.Header>
                             </MenuItem>
                         </Menu>
-                        <Separator />
+                        <Separator Visibility="Collapsed" />
                         <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
                             <MenuItem
                                 x:Name="menuClose"
