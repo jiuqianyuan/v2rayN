@@ -1636,6 +1636,6 @@ Si un certificat auto-signé est utilisé ou si le système contient une CA non 
     <value>Afficher dans le Dock de macOS (redém. requis)</value>
   </data>
   <data name="menuServerList2" xml:space="preserve">
-    <value>Configuration Item 2, Select and add from self-built</value>
+    <value>Élément de config 2 : choisir et ajouter depuis self-hosted</value>
   </data>
 </root>
