@@ -380,12 +380,16 @@ public partial class CoreConfigV2rayService
 
                 TlsSettings4Ray tlsSettings = new()
                 {
-                    allowInsecure = _node.GetAllowInsecure(),
                     alpn = _node.GetAlpn(),
                     fingerprint = _node.Fingerprint.IsNullOrEmpty() ? _config.CoreBasicItem.DefFingerprint : _node.Fingerprint,
                     echConfigList = _node.EchConfigList.NullIfEmpty(),
                     verifyPeerCertByName = _node.VerifyPeerCertByName.NullIfEmpty(),
                 };
+                // For Xray cores do not write allowInsecure (deprecated/unsupported since 2024-06-01)
+                if (context.RunCoreType != ECoreType.Xray)
+                {
+                    tlsSettings.allowInsecure = _node.GetAllowInsecure();
+                }
                 if (sni.IsNotEmpty())
                 {
                     tlsSettings.serverName = sni;
