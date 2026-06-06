@@ -1,6 +1,6 @@
 using System.Reactive.Concurrency;
-using static ServiceLib.Models.ClashProviders;
-using static ServiceLib.Models.ClashProxies;
+using static ServiceLib.Models.Dto.ClashProviders;
+using static ServiceLib.Models.Dto.ClashProxies;
 
 namespace ServiceLib.ViewModels;
 
@@ -67,7 +67,7 @@ public class ClashProxiesViewModel : MyReactiveObject
         this.WhenAnyValue(
            x => x.SelectedGroup,
            y => y != null && y.Name.IsNotEmpty())
-               .Subscribe(c => RefreshProxyDetails(c));
+               .Subscribe(RefreshProxyDetails);
 
         this.WhenAnyValue(
            x => x.RuleModeSelected,
@@ -77,7 +77,7 @@ public class ClashProxiesViewModel : MyReactiveObject
         this.WhenAnyValue(
            x => x.SortingSelected,
            y => y >= 0)
-              .Subscribe(c => DoSortingSelected(c));
+              .Subscribe(DoSortingSelected);
 
         this.WhenAnyValue(
         x => x.AutoRefresh,
@@ -90,7 +90,7 @@ public class ClashProxiesViewModel : MyReactiveObject
 
         AppEvents.ProxiesReloadRequested
             .AsObservable()
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(async _ => await ProxiesReload());
 
         #endregion AppEvents
@@ -173,7 +173,7 @@ public class ClashProxiesViewModel : MyReactiveObject
 
         if (refreshUI)
         {
-            RxApp.MainThreadScheduler.Schedule(() => _ = RefreshProxyGroups());
+            RxSchedulers.MainThreadScheduler.Schedule(() => _ = RefreshProxyGroups());
         }
     }
 
@@ -188,15 +188,14 @@ public class ClashProxiesViewModel : MyReactiveObject
         ProxyGroups.Clear();
 
         var proxyGroups = ClashApiManager.Instance.GetClashProxyGroups();
-        if (proxyGroups != null && proxyGroups.Count > 0)
+        if (proxyGroups is { Count: > 0 })
         {
             foreach (var it in proxyGroups)
             {
-                if (it.name.IsNullOrEmpty() || !_proxies.ContainsKey(it.name))
+                if (it.name.IsNullOrEmpty() || !_proxies.TryGetValue(it.name, out var item))
                 {
                     continue;
                 }
-                var item = _proxies[it.name];
                 if (!Global.allowSelectType.Contains(item.type.ToLower()))
                 {
                     continue;
@@ -230,7 +229,7 @@ public class ClashProxiesViewModel : MyReactiveObject
             });
         }
 
-        if (ProxyGroups != null && ProxyGroups.Count > 0)
+        if (ProxyGroups is { Count: > 0 })
         {
             if (selectedName != null && ProxyGroups.Any(t => t.Name == selectedName))
             {
@@ -387,7 +386,7 @@ public class ClashProxiesViewModel : MyReactiveObject
             }
 
             var model = new SpeedTestResult() { IndexId = item.Name, Delay = result };
-            RxApp.MainThreadScheduler.Schedule(model, (scheduler, model) =>
+            RxSchedulers.MainThreadScheduler.Schedule(model, (scheduler, model) =>
             {
                 _ = ProxiesDelayTestResult(model);
                 return Disposable.Empty;

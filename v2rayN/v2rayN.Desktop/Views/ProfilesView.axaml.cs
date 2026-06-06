@@ -7,6 +7,7 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
 {
     private static Config _config;
     private Window? _window;
+    private static readonly string _tag = "ProfilesView";
 
     public ProfilesView()
     {
@@ -60,12 +61,8 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
             this.BindCommand(ViewModel, vm => vm.CopyServerCmd, v => v.menuCopyServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.SetDefaultServerCmd, v => v.menuSetDefaultServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.ShareServerCmd, v => v.menuShareServer).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerXrayRandomCmd, v => v.menuGenGroupMultipleServerXrayRandom).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerXrayRoundRobinCmd, v => v.menuGenGroupMultipleServerXrayRoundRobin).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerXrayLeastPingCmd, v => v.menuGenGroupMultipleServerXrayLeastPing).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerXrayLeastLoadCmd, v => v.menuGenGroupMultipleServerXrayLeastLoad).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerSingBoxLeastPingCmd, v => v.menuGenGroupMultipleServerSingBoxLeastPing).DisposeWith(disposables);
-            this.BindCommand(ViewModel, vm => vm.GenGroupMultipleServerSingBoxFallbackCmd, v => v.menuGenGroupMultipleServerSingBoxFallback).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.GenGroupAllServerCmd, v => v.menuGenGroupAllServer).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.GenGroupRegionServerCmd, v => v.menuGenGroupRegionServer).DisposeWith(disposables);
 
             //servers move
             //this.OneWayBind(ViewModel, vm => vm.SubItems, v => v.cmbMoveToGroup.ItemsSource).DisposeWith(disposables);
@@ -80,6 +77,7 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
             this.BindCommand(ViewModel, vm => vm.MixedTestServerCmd, v => v.menuMixedTestServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.TcpingServerCmd, v => v.menuTcpingServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.RealPingServerCmd, v => v.menuRealPingServer).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.UdpTestServerCmd, v => v.menuUdpTestServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.SpeedServerCmd, v => v.menuSpeedServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.SortServerResultCmd, v => v.menuSortServerResult).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.RemoveInvalidServerResultCmd, v => v.menuRemoveInvalidServerResult).DisposeWith(disposables);
@@ -90,18 +88,19 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
             this.BindCommand(ViewModel, vm => vm.Export2ClientConfigClipboardCmd, v => v.menuExport2ClientConfigClipboard).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.Export2ShareUrlCmd, v => v.menuExport2ShareUrl).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.Export2ShareUrlBase64Cmd, v => v.menuExport2ShareUrlBase64).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.Export2InnerUriCmd, v => v.menuExport2InnerUri).DisposeWith(disposables);
 
             AppEvents.AppExitRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
               .Subscribe(_ => StorageUI())
               .DisposeWith(disposables);
 
-            AppEvents.AdjustMainLvColWidthRequested
-                .AsObservable()
-                .ObserveOn(RxApp.MainThreadScheduler)
-                .Subscribe(_ => AutofitColumnWidth())
-                .DisposeWith(disposables);
+            //AppEvents.AdjustMainLvColWidthRequested
+            //    .AsObservable()
+            //    .ObserveOn(RxSchedulers.MainThreadScheduler)
+            //    .Subscribe(_ => AutofitColumnWidth())
+            //    .DisposeWith(disposables);
         });
 
         RestoreUI();
@@ -385,7 +384,7 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
         }
         catch (Exception ex)
         {
-            Logging.SaveLog("ProfilesView", ex);
+            Logging.SaveLog(_tag, ex);
         }
     }
 
@@ -403,53 +402,71 @@ public partial class ProfilesView : ReactiveUserControl<ProfilesViewModel>
 
     private void RestoreUI()
     {
-        var lvColumnItem = _config.UiItem.MainColumnItem.OrderBy(t => t.Index).ToList();
-        var displayIndex = 0;
-        foreach (var item in lvColumnItem)
+        try
         {
+            var lvColumnItem = _config.UiItem.MainColumnItem.OrderBy(t => t.Index).ToList();
+            var displayIndex = 0;
+            foreach (var item in lvColumnItem)
+            {
+                foreach (var item2 in lstProfiles.Columns)
+                {
+                    if (item2.Tag == null)
+                    {
+                        continue;
+                    }
+                    if (item2.Tag.Equals(item.Name))
+                    {
+                        if (item.Width < 0)
+                        {
+                            item2.IsVisible = false;
+                        }
+                        else
+                        {
+                            item2.Width = new DataGridLength(item.Width, DataGridLengthUnitType.Pixel);
+                            item2.DisplayIndex = displayIndex++;
+                        }
+                        if (item.Name.StartsWith("to", StringComparison.CurrentCultureIgnoreCase))
+                        {
+                            item2.IsVisible = _config.GuiItem.EnableStatistics;
+                        }
+                        if (item.Name.Equals("IpInfo", StringComparison.CurrentCultureIgnoreCase))
+                        {
+                            item2.IsVisible = _config.SpeedTestItem.IPAPIUrl.IsNotEmpty();
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logging.SaveLog(_tag, ex);
+        }
+    }
+
+    private void StorageUI()
+    {
+        try
+        {
+            List<ColumnItem> lvColumnItem = [];
             foreach (var item2 in lstProfiles.Columns)
             {
                 if (item2.Tag == null)
                 {
                     continue;
                 }
-                if (item2.Tag.Equals(item.Name))
+                lvColumnItem.Add(new()
                 {
-                    if (item.Width < 0)
-                    {
-                        item2.IsVisible = false;
-                    }
-                    else
-                    {
-                        item2.Width = new DataGridLength(item.Width, DataGridLengthUnitType.Pixel);
-                        item2.DisplayIndex = displayIndex++;
-                    }
-                    if (item.Name.ToLower().StartsWith("to"))
-                    {
-                        item2.IsVisible = _config.GuiItem.EnableStatistics;
-                    }
-                }
+                    Name = (string)item2.Tag,
+                    Width = (int)(item2.IsVisible == true ? item2.ActualWidth : -1),
+                    Index = item2.DisplayIndex
+                });
             }
+            _config.UiItem.MainColumnItem = lvColumnItem;
         }
-    }
-
-    private void StorageUI()
-    {
-        List<ColumnItem> lvColumnItem = new();
-        foreach (var item2 in lstProfiles.Columns)
+        catch (Exception ex)
         {
-            if (item2.Tag == null)
-            {
-                continue;
-            }
-            lvColumnItem.Add(new()
-            {
-                Name = (string)item2.Tag,
-                Width = (int)(item2.IsVisible == true ? item2.ActualWidth : -1),
-                Index = item2.DisplayIndex
-            });
+            Logging.SaveLog(_tag, ex);
         }
-        _config.UiItem.MainColumnItem = lvColumnItem;
     }
 
     #endregion UI

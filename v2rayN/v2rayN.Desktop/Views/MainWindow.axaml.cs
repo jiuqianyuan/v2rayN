@@ -25,6 +25,7 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
         menuSettingsSetUWP.Click += MenuSettingsSetUWP_Click;
         menuPromotion.Click += MenuPromotion_Click;
         menuCheckUpdate.Click += MenuCheckUpdate_Click;
+        btnNewUpdate.Click += MenuCheckUpdate_Click;
         menuBackupAndRestore.Click += MenuBackupAndRestore_Click;
         menuClose.Click += MenuClose_Click;
 
@@ -72,6 +73,7 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
             this.BindCommand(ViewModel, vm => vm.AddTuicServerCmd, v => v.menuAddTuicServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddWireguardServerCmd, v => v.menuAddWireguardServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddAnytlsServerCmd, v => v.menuAddAnytlsServer).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.AddNaiveServerCmd, v => v.menuAddNaiveServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddCustomServerCmd, v => v.menuAddCustomServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddPolicyGroupServerCmd, v => v.menuAddPolicyGroupServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddProxyChainServerCmd, v => v.menuAddProxyChainServer).DisposeWith(disposables);
@@ -101,6 +103,7 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
 
             this.BindCommand(ViewModel, vm => vm.ReloadCmd, v => v.menuReload).DisposeWith(disposables);
             this.OneWayBind(ViewModel, vm => vm.BlReloadEnabled, v => v.menuReload.IsEnabled).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.BlNewUpdate, v => v.btnNewUpdate.IsVisible).DisposeWith(disposables);
 
             switch (_config.UiItem.MainGirdOrientation)
             {
@@ -128,26 +131,26 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
 
             AppEvents.SendSnackMsgRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
               .Subscribe(async content => await DelegateSnackMsg(content))
               .DisposeWith(disposables);
 
             AppEvents.AppExitRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
               .Subscribe(_ => StorageUI())
               .DisposeWith(disposables);
 
             AppEvents.ShutdownRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
-              .Subscribe(content => Shutdown(content))
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
+              .Subscribe(Shutdown)
               .DisposeWith(disposables);
 
             AppEvents.ShowHideWindowRequested
              .AsObservable()
-             .ObserveOn(RxApp.MainThreadScheduler)
-             .Subscribe(blShow => ShowHideWindow(blShow))
+             .ObserveOn(RxSchedulers.MainThreadScheduler)
+             .Subscribe(ShowHideWindow)
              .DisposeWith(disposables);
         });
 
@@ -161,8 +164,8 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
         else
         {
             Title = $"{Utils.GetVersion()}";
+            menuAddServerViaScan.IsVisible = false;
         }
-        menuAddServerViaScan.IsVisible = false;
 
         if (_config.UiItem.AutoHideStartup && Utils.IsWindows())
         {
@@ -335,17 +338,17 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
 
     public async Task ScanScreenTaskAsync()
     {
-        //ShowHideWindow(false);
+        ShowHideWindow(false);
 
-        NoticeManager.Instance.SendMessageAndEnqueue("Not yet implemented.(还未实现)");
-        await Task.CompletedTask;
-        //if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        //{
-        //    //var bytes = QRCodeHelper.CaptureScreen(desktop);
-        //    //await ViewModel?.ScanScreenResult(bytes);
-        //}
+        await Task.Delay(200);
 
-        //ShowHideWindow(true);
+        var bytes = QRCodeAvaloniaUtils.CaptureScreen();
+        if (bytes != null && ViewModel != null)
+        {
+            await ViewModel.ScanScreenResult(bytes);
+        }
+
+        ShowHideWindow(true);
     }
 
     private async Task ScanImageTaskAsync()
@@ -366,6 +369,8 @@ public partial class MainWindow : WindowBase<MainWindowViewModel>
     {
         _checkUpdateView ??= new CheckUpdateView();
         DialogHost.Show(_checkUpdateView);
+
+        AppEvents.HasUpdateNotified.Publish(false);
     }
 
     private void MenuBackupAndRestore_Click(object? sender, RoutedEventArgs e)

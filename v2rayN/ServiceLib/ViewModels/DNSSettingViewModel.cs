@@ -9,16 +9,18 @@ public class DNSSettingViewModel : MyReactiveObject
     [Reactive] public string? DirectDNS { get; set; }
     [Reactive] public string? RemoteDNS { get; set; }
     [Reactive] public string? BootstrapDNS { get; set; }
-    [Reactive] public string? RayStrategy4Freedom { get; set; }
-    [Reactive] public string? SingboxStrategy4Direct { get; set; }
-    [Reactive] public string? SingboxStrategy4Proxy { get; set; }
+    [Reactive] public string? Strategy4Freedom { get; set; }
+    [Reactive] public string? Strategy4Proxy { get; set; }
     [Reactive] public string? Hosts { get; set; }
     [Reactive] public string? DirectExpectedIPs { get; set; }
+    [Reactive] public bool? ParallelQuery { get; set; }
+    [Reactive] public bool? ServeStale { get; set; }
 
     [Reactive] public bool UseSystemHostsCompatible { get; set; }
     [Reactive] public string DomainStrategy4FreedomCompatible { get; set; }
     [Reactive] public string DomainDNSAddressCompatible { get; set; }
     [Reactive] public string NormalDNSCompatible { get; set; }
+    [Reactive] public string TunDNSCompatible { get; set; }
 
     [Reactive] public string DomainStrategy4Freedom2Compatible { get; set; }
     [Reactive] public string DomainDNSAddress2Compatible { get; set; }
@@ -42,6 +44,7 @@ public class DNSSettingViewModel : MyReactiveObject
         ImportDefConfig4V2rayCompatibleCmd = ReactiveCommand.CreateFromTask(async () =>
         {
             NormalDNSCompatible = EmbedUtils.GetEmbedText(Global.DNSV2rayNormalFileName);
+            TunDNSCompatible = EmbedUtils.GetEmbedText(Global.DNSV2rayNormalFileName);
             await Task.CompletedTask;
         });
 
@@ -53,7 +56,7 @@ public class DNSSettingViewModel : MyReactiveObject
         });
 
         this.WhenAnyValue(x => x.RayCustomDNSEnableCompatible, x => x.SBCustomDNSEnableCompatible)
-            .Select(x => !(x.Item1 && x.Item2))
+            .Select(x => x is not { Item1: true, Item2: true })
             .ToPropertyEx(this, x => x.IsSimpleDNSEnabled);
 
         _ = Init();
@@ -70,11 +73,12 @@ public class DNSSettingViewModel : MyReactiveObject
         DirectDNS = item.DirectDNS;
         RemoteDNS = item.RemoteDNS;
         BootstrapDNS = item.BootstrapDNS;
-        RayStrategy4Freedom = item.RayStrategy4Freedom;
-        SingboxStrategy4Direct = item.SingboxStrategy4Direct;
-        SingboxStrategy4Proxy = item.SingboxStrategy4Proxy;
+        Strategy4Freedom = item.Strategy4Freedom;
+        Strategy4Proxy = item.Strategy4Proxy;
         Hosts = item.Hosts;
         DirectExpectedIPs = item.DirectExpectedIPs;
+        ParallelQuery = item.ParallelQuery;
+        ServeStale = item.ServeStale;
 
         var item1 = await AppManager.Instance.GetDNSItem(ECoreType.Xray);
         RayCustomDNSEnableCompatible = item1.Enabled;
@@ -82,6 +86,7 @@ public class DNSSettingViewModel : MyReactiveObject
         DomainStrategy4FreedomCompatible = item1?.DomainStrategy4Freedom ?? string.Empty;
         DomainDNSAddressCompatible = item1?.DomainDNSAddress ?? string.Empty;
         NormalDNSCompatible = item1?.NormalDNS ?? string.Empty;
+        TunDNSCompatible = item1?.TunDNS ?? string.Empty;
 
         var item2 = await AppManager.Instance.GetDNSItem(ECoreType.sing_box);
         SBCustomDNSEnableCompatible = item2.Enabled;
@@ -100,11 +105,12 @@ public class DNSSettingViewModel : MyReactiveObject
         _config.SimpleDNSItem.DirectDNS = DirectDNS;
         _config.SimpleDNSItem.RemoteDNS = RemoteDNS;
         _config.SimpleDNSItem.BootstrapDNS = BootstrapDNS;
-        _config.SimpleDNSItem.RayStrategy4Freedom = RayStrategy4Freedom;
-        _config.SimpleDNSItem.SingboxStrategy4Direct = SingboxStrategy4Direct;
-        _config.SimpleDNSItem.SingboxStrategy4Proxy = SingboxStrategy4Proxy;
+        _config.SimpleDNSItem.Strategy4Freedom = Strategy4Freedom;
+        _config.SimpleDNSItem.Strategy4Proxy = Strategy4Proxy;
         _config.SimpleDNSItem.Hosts = Hosts;
         _config.SimpleDNSItem.DirectExpectedIPs = DirectExpectedIPs;
+        _config.SimpleDNSItem.ParallelQuery = ParallelQuery;
+        _config.SimpleDNSItem.ServeStale = ServeStale;
 
         if (NormalDNSCompatible.IsNotEmpty())
         {
@@ -121,10 +127,27 @@ public class DNSSettingViewModel : MyReactiveObject
                 }
             }
         }
+        if (TunDNSCompatible.IsNotEmpty())
+        {
+            var obj = JsonUtils.ParseJson(TunDNSCompatible);
+            if (obj != null && obj["servers"] != null)
+            {
+            }
+            else
+            {
+                if (TunDNSCompatible.Contains('{') || TunDNSCompatible.Contains('}'))
+                {
+                    NoticeManager.Instance.Enqueue(ResUI.FillCorrectDNSText);
+                    return;
+                }
+            }
+        }
         if (NormalDNS2Compatible.IsNotEmpty())
         {
             var obj2 = JsonUtils.Deserialize<Dns4Sbox>(NormalDNS2Compatible);
-            if (obj2 == null)
+            if (obj2 == null
+                || obj2.servers.Count == 0
+                || obj2.servers.Any(s => s.type.IsNullOrEmpty()))
             {
                 NoticeManager.Instance.Enqueue(ResUI.FillCorrectDNSText);
                 return;
@@ -133,7 +156,9 @@ public class DNSSettingViewModel : MyReactiveObject
         if (TunDNS2Compatible.IsNotEmpty())
         {
             var obj2 = JsonUtils.Deserialize<Dns4Sbox>(TunDNS2Compatible);
-            if (obj2 == null)
+            if (obj2 == null
+                || obj2.servers.Count == 0
+                || obj2.servers.Any(s => s.type.IsNullOrEmpty()))
             {
                 NoticeManager.Instance.Enqueue(ResUI.FillCorrectDNSText);
                 return;
@@ -146,14 +171,15 @@ public class DNSSettingViewModel : MyReactiveObject
         item1.DomainDNSAddress = DomainDNSAddressCompatible;
         item1.UseSystemHosts = UseSystemHostsCompatible;
         item1.NormalDNS = NormalDNSCompatible;
+        item1.TunDNS = TunDNSCompatible;
         await ConfigHandler.SaveDNSItems(_config, item1);
 
         var item2 = await AppManager.Instance.GetDNSItem(ECoreType.sing_box);
         item2.Enabled = SBCustomDNSEnableCompatible;
         item2.DomainStrategy4Freedom = DomainStrategy4Freedom2Compatible;
         item2.DomainDNSAddress = DomainDNSAddress2Compatible;
-        item2.NormalDNS = JsonUtils.Serialize(JsonUtils.ParseJson(NormalDNS2Compatible));
-        item2.TunDNS = JsonUtils.Serialize(JsonUtils.ParseJson(TunDNS2Compatible));
+        item2.NormalDNS = JsonUtils.Serialize(JsonUtils.Deserialize<Dns4Sbox>(NormalDNS2Compatible));
+        item2.TunDNS = JsonUtils.Serialize(JsonUtils.Deserialize<Dns4Sbox>(TunDNS2Compatible));
         await ConfigHandler.SaveDNSItems(_config, item2);
 
         await ConfigHandler.SaveConfig(_config);

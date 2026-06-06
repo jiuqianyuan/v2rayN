@@ -12,7 +12,8 @@ public class ShadowsocksFmt : BaseFmt
         {
             return null;
         }
-        if (item.Address.Length == 0 || item.Port == 0 || item.Security.Length == 0 || item.Id.Length == 0)
+
+        if (item.Address.Length == 0 || item.Port == 0 || item.GetProtocolExtra().SsMethod.IsNullOrEmpty() || item.Password.Length == 0)
         {
             return null;
         }
@@ -40,31 +41,28 @@ public class ShadowsocksFmt : BaseFmt
         //    item.port);
         //url = Utile.Base64Encode(url);
         //new Sip002
-        var pw = Utils.Base64Encode($"{item.Security}:{item.Id}", true);
+        var pw = Utils.Base64Encode($"{item.GetProtocolExtra().SsMethod}:{item.Password}", true);
+        var transport = item.GetTransportExtra();
 
         // plugin
         var plugin = string.Empty;
         var pluginArgs = string.Empty;
 
-        if (item.Network == nameof(ETransport.tcp) && item.HeaderType == Global.TcpHeaderHttp)
+        if (item.Network == nameof(ETransport.raw) && transport.RawHeaderType == Global.RawHeaderHttp)
         {
             plugin = "obfs-local";
-            pluginArgs = $"obfs=http;obfs-host={item.RequestHost};";
+            pluginArgs = $"obfs=http;obfs-host={transport.Host};";
         }
         else
         {
             if (item.Network == nameof(ETransport.ws))
             {
                 pluginArgs += "mode=websocket;";
-                pluginArgs += $"host={item.RequestHost};";
+                pluginArgs += $"host={transport.Host};";
                 // https://github.com/shadowsocks/v2ray-plugin/blob/e9af1cdd2549d528deb20a4ab8d61c5fbe51f306/args.go#L172
                 // Equal signs and commas [and backslashes] must be escaped with a backslash.
-                var path = item.Path.Replace("\\", "\\\\").Replace("=", "\\=").Replace(",", "\\,");
+                var path = (transport.Path ?? string.Empty).Replace("\\", "\\\\").Replace("=", "\\=").Replace(",", "\\,");
                 pluginArgs += $"path={path};";
-            }
-            else if (item.Network == nameof(ETransport.quic))
-            {
-                pluginArgs += "mode=quic;";
             }
             if (item.StreamSecurity == Global.StreamSecurity)
             {
@@ -136,8 +134,8 @@ public class ShadowsocksFmt : BaseFmt
         {
             return null;
         }
-        item.Security = details.Groups["method"].Value;
-        item.Id = details.Groups["password"].Value;
+        item.SetProtocolExtra(item.GetProtocolExtra() with { SsMethod = details.Groups["method"].Value });
+        item.Password = details.Groups["password"].Value;
         item.Address = details.Groups["hostname"].Value;
         item.Port = details.Groups["port"].Value.ToInt();
         return item;
@@ -166,8 +164,8 @@ public class ShadowsocksFmt : BaseFmt
             {
                 return null;
             }
-            item.Security = userInfoParts.First();
-            item.Id = Utils.UrlDecode(userInfoParts.Last());
+            item.SetProtocolExtra(item.GetProtocolExtra() with { SsMethod = userInfoParts.First() });
+            item.Password = Utils.UrlDecode(userInfoParts.Last());
         }
         else
         {
@@ -178,8 +176,8 @@ public class ShadowsocksFmt : BaseFmt
             {
                 return null;
             }
-            item.Security = userInfoParts.First();
-            item.Id = userInfoParts.Last();
+            item.SetProtocolExtra(item.GetProtocolExtra() with { SsMethod = userInfoParts.First() });
+            item.Password = userInfoParts.Last();
         }
 
         var queryParameters = Utils.ParseQueryString(parsedUrl.Query);
@@ -212,8 +210,11 @@ public class ShadowsocksFmt : BaseFmt
                 {
                     obfsHost = obfsHost.Replace("obfs-host=", "");
                     item.Network = Global.DefaultNetwork;
-                    item.HeaderType = Global.TcpHeaderHttp;
-                    item.RequestHost = obfsHost;
+                    item.SetTransportExtra(item.GetTransportExtra() with
+                    {
+                        RawHeaderType = Global.RawHeaderHttp,
+                        Host = obfsHost,
+                    });
                 }
             }
             // Parse v2ray-plugin
@@ -230,21 +231,20 @@ public class ShadowsocksFmt : BaseFmt
                 if (modeValue == "websocket")
                 {
                     item.Network = nameof(ETransport.ws);
+                    var t = item.GetTransportExtra();
                     if (!host.IsNullOrEmpty())
                     {
-                        item.RequestHost = host.Replace("host=", "");
-                        item.Sni = item.RequestHost;
+                        var wsHost = host.Replace("host=", "");
+                        t = t with { Host = wsHost };
+                        item.Sni = wsHost;
                     }
                     if (!path.IsNullOrEmpty())
                     {
                         var pathValue = path.Replace("path=", "");
                         pathValue = pathValue.Replace("\\=", "=").Replace("\\,", ",").Replace("\\\\", "\\");
-                        item.Path = pathValue;
+                        t = t with { Path = pathValue };
                     }
-                }
-                else if (modeValue == "quic")
-                {
-                    item.Network = nameof(ETransport.quic);
+                    item.SetTransportExtra(t);
                 }
 
                 if (hasTls)
@@ -275,7 +275,6 @@ public class ShadowsocksFmt : BaseFmt
                 }
             }
         }
-
         return item;
     }
 
@@ -300,11 +299,11 @@ public class ShadowsocksFmt : BaseFmt
                 var ssItem = new ProfileItem()
                 {
                     Remarks = it.remarks,
-                    Security = it.method,
-                    Id = it.password,
+                    Password = it.password,
                     Address = it.server,
                     Port = it.server_port.ToInt()
                 };
+                ssItem.SetProtocolExtra(new ProtocolExtraItem() { SsMethod = it.method });
                 lst.Add(ssItem);
             }
             return lst;

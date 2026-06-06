@@ -2,29 +2,29 @@ namespace ServiceLib.Services.CoreConfig;
 
 public partial class CoreConfigSingboxService
 {
-    private async Task<string> ApplyFullConfigTemplate(SingboxConfig singboxConfig)
+    private string ApplyFullConfigTemplate()
     {
-        var fullConfigTemplate = await AppManager.Instance.GetFullConfigTemplateItem(ECoreType.sing_box);
-        if (fullConfigTemplate == null || !fullConfigTemplate.Enabled)
+        var fullConfigTemplate = context.FullConfigTemplate;
+        if (fullConfigTemplate is not { Enabled: true })
         {
-            return JsonUtils.Serialize(singboxConfig);
+            return JsonUtils.Serialize(_coreConfig);
         }
 
-        var fullConfigTemplateItem = _config.TunModeItem.EnableTun ? fullConfigTemplate.TunConfig : fullConfigTemplate.Config;
+        var fullConfigTemplateItem = context.IsTunEnabled ? fullConfigTemplate.TunConfig : fullConfigTemplate.Config;
         if (fullConfigTemplateItem.IsNullOrEmpty())
         {
-            return JsonUtils.Serialize(singboxConfig);
+            return JsonUtils.Serialize(_coreConfig);
         }
 
         var fullConfigTemplateNode = JsonNode.Parse(fullConfigTemplateItem);
         if (fullConfigTemplateNode == null)
         {
-            return JsonUtils.Serialize(singboxConfig);
+            return JsonUtils.Serialize(_coreConfig);
         }
 
         // Process outbounds
-        var customOutboundsNode = fullConfigTemplateNode["outbounds"] is JsonArray outbounds ? outbounds : new JsonArray();
-        foreach (var outbound in singboxConfig.outbounds)
+        var customOutboundsNode = fullConfigTemplateNode["outbounds"] as JsonArray ?? [];
+        foreach (var outbound in _coreConfig.outbounds)
         {
             if (outbound.type.ToLower() is "direct" or "block")
             {
@@ -42,10 +42,10 @@ public partial class CoreConfigSingboxService
         fullConfigTemplateNode["outbounds"] = customOutboundsNode;
 
         // Process endpoints
-        if (singboxConfig.endpoints != null && singboxConfig.endpoints.Count > 0)
+        if (_coreConfig.endpoints is { Count: > 0 })
         {
-            var customEndpointsNode = fullConfigTemplateNode["endpoints"] is JsonArray endpoints ? endpoints : new JsonArray();
-            foreach (var endpoint in singboxConfig.endpoints)
+            var customEndpointsNode = fullConfigTemplateNode["endpoints"] as JsonArray ?? [];
+            foreach (var endpoint in _coreConfig.endpoints)
             {
                 if (endpoint.detour.IsNullOrEmpty() && !fullConfigTemplate.ProxyDetour.IsNullOrEmpty())
                 {
@@ -56,6 +56,58 @@ public partial class CoreConfigSingboxService
             fullConfigTemplateNode["endpoints"] = customEndpointsNode;
         }
 
-        return await Task.FromResult(JsonUtils.Serialize(fullConfigTemplateNode));
+        return JsonUtils.Serialize(fullConfigTemplateNode);
+    }
+
+    private void ApplyOutboundBindInterface()
+    {
+        var bindInterface = _config.CoreBasicItem.BindInterface?.TrimEx();
+        if (bindInterface.IsNullOrEmpty())
+        {
+            return;
+        }
+        if (!(context.IsTunEnabled || context.IsWindows))
+        {
+            return;
+        }
+        foreach (var outbound in _coreConfig.outbounds ?? [])
+        {
+            outbound.bind_interface = ShouldBindNet(outbound) ? bindInterface : null;
+        }
+    }
+
+    private void ApplyOutboundSendThrough()
+    {
+        var sendThrough = _config.CoreBasicItem.SendThrough?.TrimEx();
+        if (sendThrough.IsNullOrEmpty())
+        {
+            return;
+        }
+        foreach (var outbound in _coreConfig.outbounds ?? [])
+        {
+            outbound.inet4_bind_address = ShouldBindNet(outbound) ? sendThrough : null;
+        }
+    }
+
+    private static bool ShouldBindNet(Outbound4Sbox outbound)
+    {
+        if (outbound.type is "direct" or "block" or "dns" or "selector" or "urltest")
+        {
+            return false;
+        }
+
+        if (!outbound.detour.IsNullOrEmpty())
+        {
+            return false;
+        }
+
+        var outboundAddress = outbound.server ?? string.Empty;
+
+        if (outboundAddress.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !IPAddress.TryParse(outboundAddress, out var address) || !IPAddress.IsLoopback(address);
     }
 }

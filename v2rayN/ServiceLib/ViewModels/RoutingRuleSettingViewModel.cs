@@ -86,7 +86,7 @@ public class RoutingRuleSettingViewModel : MyReactiveObject
 
         SelectedSource = new();
         SelectedRouting = routingItem;
-        _rules = routingItem.Id.IsNullOrEmpty() ? new() : JsonUtils.Deserialize<List<RulesItem>>(SelectedRouting.RuleSet);
+        _rules = routingItem.Id.IsNullOrEmpty() ? [] : JsonUtils.Deserialize<List<RulesItem>>(SelectedRouting.RuleSet);
 
         RefreshRulesItems();
     }
@@ -106,7 +106,7 @@ public class RoutingRuleSettingViewModel : MyReactiveObject
                 Network = item.Network,
                 Protocols = Utils.List2String(item.Protocol),
                 InboundTags = Utils.List2String(item.InboundTag),
-                Domains = Utils.List2String((item.Domain ?? []).Concat(item.Ip ?? []).ToList()),
+                Domains = Utils.List2String((item.Domain ?? []).Concat(item.Ip ?? []).ToList().Concat(item.Process ?? []).ToList()),
                 Enabled = item.Enabled,
                 Remarks = item.Remarks,
             };

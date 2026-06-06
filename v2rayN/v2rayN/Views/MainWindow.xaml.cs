@@ -25,6 +25,7 @@ public partial class MainWindow
         menuPromotion.Click += MenuPromotion_Click;
         menuClose.Click += MenuClose_Click;
         menuCheckUpdate.Click += MenuCheckUpdate_Click;
+        btnNewUpdate.Click += MenuCheckUpdate_Click;
         menuBackupAndRestore.Click += MenuBackupAndRestore_Click;
 
         ViewModel = new MainWindowViewModel(UpdateViewHandler);
@@ -71,6 +72,7 @@ public partial class MainWindow
             this.BindCommand(ViewModel, vm => vm.AddTuicServerCmd, v => v.menuAddTuicServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddWireguardServerCmd, v => v.menuAddWireguardServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddAnytlsServerCmd, v => v.menuAddAnytlsServer).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.AddNaiveServerCmd, v => v.menuAddNaiveServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddCustomServerCmd, v => v.menuAddCustomServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddPolicyGroupServerCmd, v => v.menuAddPolicyGroupServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddProxyChainServerCmd, v => v.menuAddProxyChainServer).DisposeWith(disposables);
@@ -101,6 +103,8 @@ public partial class MainWindow
             this.BindCommand(ViewModel, vm => vm.ReloadCmd, v => v.menuReload).DisposeWith(disposables);
             this.OneWayBind(ViewModel, vm => vm.BlReloadEnabled, v => v.menuReload.IsEnabled).DisposeWith(disposables);
 
+            this.OneWayBind(ViewModel, vm => vm.BlNewUpdate, v => v.btnNewUpdate.Visibility).DisposeWith(disposables);
+
             switch (_config.UiItem.MainGirdOrientation)
             {
                 case EGirdOrientation.Horizontal:
@@ -127,26 +131,26 @@ public partial class MainWindow
 
             AppEvents.SendSnackMsgRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
               .Subscribe(async content => await DelegateSnackMsg(content))
               .DisposeWith(disposables);
 
             AppEvents.AppExitRequested
               .AsObservable()
-              .ObserveOn(RxApp.MainThreadScheduler)
+              .ObserveOn(RxSchedulers.MainThreadScheduler)
               .Subscribe(_ => StorageUI())
               .DisposeWith(disposables);
 
             AppEvents.ShutdownRequested
              .AsObservable()
-             .ObserveOn(RxApp.MainThreadScheduler)
-             .Subscribe(content => Shutdown(content))
+             .ObserveOn(RxSchedulers.MainThreadScheduler)
+             .Subscribe(Shutdown)
              .DisposeWith(disposables);
 
             AppEvents.ShowHideWindowRequested
              .AsObservable()
-             .ObserveOn(RxApp.MainThreadScheduler)
-             .Subscribe(blShow => ShowHideWindow(blShow))
+             .ObserveOn(RxSchedulers.MainThreadScheduler)
+             .Subscribe(ShowHideWindow)
              .DisposeWith(disposables);
         });
 
@@ -169,10 +173,10 @@ public partial class MainWindow
 
     private void OnProgramStarted(object state, bool timeout)
     {
-        Application.Current?.Dispatcher.Invoke((Action)(() =>
+        Application.Current?.Dispatcher.Invoke(() =>
         {
             ShowHideWindow(true);
-        }));
+        });
     }
 
     private async Task DelegateSnackMsg(string content)
@@ -362,6 +366,8 @@ public partial class MainWindow
     {
         _checkUpdateView ??= new CheckUpdateView();
         DialogHost.Show(_checkUpdateView, "RootDialog");
+
+        AppEvents.HasUpdateNotified.Publish(false);
     }
 
     private void MenuBackupAndRestore_Click(object sender, RoutedEventArgs e)

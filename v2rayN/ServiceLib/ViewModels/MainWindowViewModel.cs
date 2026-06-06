@@ -18,6 +18,7 @@ public class MainWindowViewModel : MyReactiveObject
     public ReactiveCommand<Unit, Unit> AddTuicServerCmd { get; }
     public ReactiveCommand<Unit, Unit> AddWireguardServerCmd { get; }
     public ReactiveCommand<Unit, Unit> AddAnytlsServerCmd { get; }
+    public ReactiveCommand<Unit, Unit> AddNaiveServerCmd { get; }
     public ReactiveCommand<Unit, Unit> AddCustomServerCmd { get; }
     public ReactiveCommand<Unit, Unit> AddPolicyGroupServerCmd { get; }
     public ReactiveCommand<Unit, Unit> AddProxyChainServerCmd { get; }
@@ -63,6 +64,8 @@ public class MainWindowViewModel : MyReactiveObject
     public int TabMainSelectedIndex { get; set; }
 
     [Reactive] public bool BlIsWindows { get; set; }
+
+    [Reactive] public bool BlNewUpdate { get; set; }
 
     #endregion Menu
 
@@ -116,6 +119,10 @@ public class MainWindowViewModel : MyReactiveObject
         AddAnytlsServerCmd = ReactiveCommand.CreateFromTask(async () =>
         {
             await AddServerAsync(EConfigType.Anytls);
+        });
+        AddNaiveServerCmd = ReactiveCommand.CreateFromTask(async () =>
+        {
+            await AddServerAsync(EConfigType.Naive);
         });
         AddCustomServerCmd = ReactiveCommand.CreateFromTask(async () =>
         {
@@ -228,23 +235,28 @@ public class MainWindowViewModel : MyReactiveObject
 
         AppEvents.ReloadRequested
             .AsObservable()
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(async _ => await Reload());
 
         AppEvents.AddServerViaScanRequested
             .AsObservable()
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(async _ => await AddServerViaScanAsync());
 
         AppEvents.AddServerViaClipboardRequested
             .AsObservable()
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(async _ => await AddServerViaClipboardAsync(null));
 
         AppEvents.SubscriptionsUpdateRequested
             .AsObservable()
-            .ObserveOn(RxApp.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(async blProxy => await UpdateSubscriptionProcess("", blProxy));
+
+        AppEvents.HasUpdateNotified
+            .AsObservable()
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(async bl => BlNewUpdate = bl);
 
         #endregion AppEvents
 
@@ -259,7 +271,6 @@ public class MainWindowViewModel : MyReactiveObject
         await ConfigHandler.InitBuiltinDNS(_config);
         await ConfigHandler.InitBuiltinFullConfigTemplate(_config);
         await ProfileExManager.Instance.Init();
-        await ProfileGroupItemManager.Instance.Init();
         await CoreManager.Instance.Init(_config, UpdateHandler);
         TaskManager.Instance.RegUpdateTask(_config, UpdateTaskHandler);
 
@@ -293,10 +304,22 @@ public class MainWindowViewModel : MyReactiveObject
         {
             var indexIdOld = _config.IndexId;
             await RefreshServers();
-            if (indexIdOld != _config.IndexId)
+
+            // If indexId changed or subIndexId is empty, directly reload.
+            if (indexIdOld != _config.IndexId || _config.SubIndexId.IsNullOrEmpty())
             {
                 await Reload();
             }
+            else
+            {
+                // The activity config belongs to the current group.
+                var profile = await AppManager.Instance.GetProfileItem(_config.IndexId);
+                if (profile != null && profile.Subid == _config.SubIndexId)
+                {
+                    await Reload();
+                }
+            }
+
             if (_config.UiItem.EnableAutoAdjustMainLvColWidth)
             {
                 AppEvents.AdjustMainLvColWidthRequested.Publish();
@@ -541,20 +564,21 @@ public class MainWindowViewModel : MyReactiveObject
         {
             SetReloadEnabled(false);
 
-            var msgs = await ActionPrecheckManager.Instance.Check(_config.IndexId);
-            if (msgs.Count > 0)
+            var profileItem = await ConfigHandler.GetDefaultServer(_config);
+            if (profileItem == null)
             {
-                foreach (var msg in msgs)
-                {
-                    NoticeManager.Instance.SendMessage(msg);
-                }
-                NoticeManager.Instance.Enqueue(Utils.List2String(msgs.Take(10).ToList(), true));
+                NoticeManager.Instance.Enqueue(ResUI.CheckServerSettings);
+                return;
+            }
+            var allResult = await CoreConfigContextBuilder.BuildAll(_config, profileItem);
+            if (NoticeManager.Instance.NotifyValidatorResult(allResult.CombinedValidatorResult) && !allResult.Success)
+            {
                 return;
             }
 
             await Task.Run(async () =>
             {
-                await LoadCore();
+                await LoadCore(allResult.MainResult.Context, allResult.PreSocksResult?.Context);
                 await SysProxyHandler.UpdateSysProxy(_config, false);
                 await Task.Delay(1000);
             });
@@ -583,7 +607,7 @@ public class MainWindowViewModel : MyReactiveObject
 
     private void ReloadResult(bool showClashUI)
     {
-        RxApp.MainThreadScheduler.Schedule(() =>
+        RxSchedulers.MainThreadScheduler.Schedule(() =>
         {
             ShowClashUI = showClashUI;
             TabMainSelectedIndex = showClashUI ? TabMainSelectedIndex : 0;
@@ -592,13 +616,12 @@ public class MainWindowViewModel : MyReactiveObject
 
     private void SetReloadEnabled(bool enabled)
     {
-        RxApp.MainThreadScheduler.Schedule(() => BlReloadEnabled = enabled);
+        RxSchedulers.MainThreadScheduler.Schedule(() => BlReloadEnabled = enabled);
     }
 
-    private async Task LoadCore()
+    private async Task LoadCore(CoreConfigContext? mainContext, CoreConfigContext? preContext)
     {
-        var node = await ConfigHandler.GetDefaultServer(_config);
-        await CoreManager.Instance.LoadCore(node);
+        await CoreManager.Instance.LoadCore(mainContext, preContext);
     }
 
     #endregion core job

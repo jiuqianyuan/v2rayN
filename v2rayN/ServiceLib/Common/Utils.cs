@@ -332,19 +332,17 @@ public class Utils
             .ToList();
     }
 
-    public static Dictionary<string, List<string>> ParseHostsToDictionary(string hostsContent)
+    public static Dictionary<string, List<string>> ParseHostsToDictionary(string? hostsContent)
     {
+        if (hostsContent.IsNullOrEmpty())
+        {
+            return new();
+        }
         var userHostsMap = hostsContent
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
             // skip full-line comments
-            .Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith("#"))
-            // strip inline comments (truncate at '#')
-            .Select(line =>
-            {
-                var index = line.IndexOf('#');
-                return index >= 0 ? line.Substring(0, index).Trim() : line;
-            })
+            .Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#'))
             // ensure line still contains valid parts
             .Where(line => !string.IsNullOrWhiteSpace(line) && line.Contains(' '))
             .Select(line => line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
@@ -462,6 +460,18 @@ public class Utils
         return (domain, port);
     }
 
+    public static string? DomainStrategy4Sbox(string? strategy)
+    {
+        return strategy switch
+        {
+            not null when strategy.StartsWith("UseIPv4") => "prefer_ipv4",
+            not null when strategy.StartsWith("UseIPv6") => "prefer_ipv6",
+            not null when strategy.StartsWith("ForceIPv4") => "ipv4_only",
+            not null when strategy.StartsWith("ForceIPv6") => "ipv6_only",
+            _ => null
+        };
+    }
+
     #endregion Conversion Functions
 
     #region Data Checks
@@ -487,6 +497,13 @@ public class Utils
             return false;
         }
 
+        var ext = Path.GetExtension(domain);
+        if (ext.IsNotEmpty()
+            && ext[1..].ToLowerInvariant() is "json" or "txt" or "xml" or "cfg" or "ini" or "log" or "yaml" or "yml" or "toml")
+        {
+            return false;
+        }
+
         return Uri.CheckHostName(domain) == UriHostNameType.Dns;
     }
 
@@ -503,6 +520,48 @@ public class Utils
         }
 
         return false;
+    }
+
+    public static bool IsIpv4(string? ip)
+    {
+        if (ip.IsNullOrEmpty())
+        {
+            return false;
+        }
+
+        ip = ip.Trim();
+        if (!IPAddress.TryParse(ip, out var address))
+        {
+            return false;
+        }
+
+        return address.AddressFamily == AddressFamily.InterNetwork
+               && ip.Count(c => c == '.') == 3;
+    }
+
+    public static bool IsIpAddress(string? ip)
+    {
+        if (ip.IsNullOrEmpty())
+        {
+            return false;
+        }
+
+        ip = ip.Trim();
+
+        // First, validate using built-in parser
+        if (!IPAddress.TryParse(ip, out var address))
+        {
+            return false;
+        }
+
+        // For IPv4: ensure it has exactly 3 dots (meaning 4 parts)
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            return ip.Count(c => c == '.') == 3;
+        }
+
+        // For IPv6: TryParse is already strict enough
+        return address.AddressFamily == AddressFamily.InterNetworkV6;
     }
 
     public static Uri? TryUri(string url)
@@ -594,12 +653,7 @@ public class Utils
     {
         try
         {
-            List<IPEndPoint> lstIpEndPoints = new();
-            List<TcpConnectionInformation> lstTcpConns = new();
-
-            lstIpEndPoints.AddRange(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners());
-            lstIpEndPoints.AddRange(IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners());
-            lstTcpConns.AddRange(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections());
+            var (lstIpEndPoints, lstTcpConns) = GetActiveNetworkInfo();
 
             if (lstIpEndPoints?.FindIndex(it => it.Port == port) >= 0)
             {
@@ -639,6 +693,27 @@ public class Utils
         }
 
         return 59090;
+    }
+
+    public static (List<IPEndPoint> endpoints, List<TcpConnectionInformation> connections) GetActiveNetworkInfo()
+    {
+        var endpoints = new List<IPEndPoint>();
+        var connections = new List<TcpConnectionInformation>();
+
+        try
+        {
+            var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
+
+            endpoints.AddRange(ipGlobalProperties.GetActiveTcpListeners());
+            endpoints.AddRange(ipGlobalProperties.GetActiveUdpListeners());
+            connections.AddRange(ipGlobalProperties.GetActiveTcpConnections());
+        }
+        catch (Exception ex)
+        {
+            Logging.SaveLog(_tag, ex);
+        }
+
+        return (endpoints, connections);
     }
 
     #endregion Speed Test
@@ -719,33 +794,65 @@ public class Utils
         return Guid.TryParse(strSrc, out _);
     }
 
-    public static Dictionary<string, string> GetSystemHosts()
+    private static Dictionary<string, string> GetSystemHosts(string hostFile)
     {
         var systemHosts = new Dictionary<string, string>();
-        var hostFile = @"C:\Windows\System32\drivers\etc\hosts";
         try
         {
-            if (File.Exists(hostFile))
+            if (!File.Exists(hostFile))
             {
-                var hosts = File.ReadAllText(hostFile).Replace("\r", "");
-                var hostsList = hosts.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (var host in hostsList)
-                {
-                    if (host.StartsWith("#"))
-                    {
-                        continue;
-                    }
-
-                    var hostItem = host.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (hostItem.Length < 2)
-                    {
-                        continue;
-                    }
-
-                    systemHosts.Add(hostItem[1], hostItem[0]);
-                }
+                return systemHosts;
             }
+            var hosts = File.ReadAllText(hostFile).Replace("\r", "");
+            var hostsList = hosts.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var host in hostsList)
+            {
+                // Trim whitespace
+                var line = host.Trim();
+
+                // Skip comments and empty lines
+                if (line.IsNullOrEmpty() || line.StartsWith("#"))
+                {
+                    continue;
+                }
+
+                // Strip inline comments
+                var commentIndex = line.IndexOf('#');
+                if (commentIndex >= 0)
+                {
+                    line = line.Substring(0, commentIndex).Trim();
+                }
+                if (line.IsNullOrEmpty())
+                {
+                    continue;
+                }
+
+                var hostItem = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (hostItem.Length < 2)
+                {
+                    continue;
+                }
+
+                var ipAddress = hostItem[0];
+                var domain = hostItem[1];
+
+                // Validate IP address
+                if (!IsIpAddress(ipAddress))
+                {
+                    continue;
+                }
+
+                // Validate domain name
+                if (domain.IsNullOrEmpty() || domain.Length > 255)
+                {
+                    continue;
+                }
+
+                systemHosts[domain] = ipAddress;
+            }
+
+            return systemHosts;
         }
         catch (Exception ex)
         {
@@ -753,6 +860,29 @@ public class Utils
         }
 
         return systemHosts;
+    }
+
+    public static Dictionary<string, string> GetSystemHosts()
+    {
+        if (IsWindows())
+        {
+            var hosts = GetSystemHosts(@"C:\Windows\System32\drivers\etc\hosts");
+            var hostsIcs = GetSystemHosts(@"C:\Windows\System32\drivers\etc\hosts.ics");
+
+            foreach (var (key, value) in hostsIcs)
+            {
+                hosts[key] = value;
+            }
+
+            return hosts;
+        }
+
+        if (IsLinux() || IsMacOS())
+        {
+            return GetSystemHosts("/etc/hosts");
+        }
+
+        return new Dictionary<string, string>();
     }
 
     public static async Task<string?> GetCliWrapOutput(string filePath, string? arg)
@@ -994,17 +1124,33 @@ public class Utils
 
     #region Platform
 
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsWindows() => OperatingSystem.IsWindows();
 
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsLinux() => OperatingSystem.IsLinux();
 
+    [SupportedOSPlatformGuard("macos")]
     public static bool IsMacOS() => OperatingSystem.IsMacOS();
 
+    [UnsupportedOSPlatformGuard("windows")]
     public static bool IsNonWindows() => !OperatingSystem.IsWindows();
 
     public static string GetExeName(string name)
     {
-        return IsWindows() ? $"{name}.exe" : name;
+        if (name.IsNullOrEmpty() || IsNonWindows())
+        {
+            return name;
+        }
+
+        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return name;
+        }
+        else
+        {
+            return $"{name}.exe";
+        }
     }
 
     public static bool IsAdministrator()
@@ -1082,6 +1228,16 @@ public class Utils
     }
 
     public static bool SetUnixFileMode(string? fileName)
+    {
+        if (IsWindows())
+        {
+            return false;
+        }
+        return SetUnixFileModeInternal(fileName);
+    }
+
+    [UnsupportedOSPlatform("windows")]
+    private static bool SetUnixFileModeInternal(string? fileName)
     {
         try
         {

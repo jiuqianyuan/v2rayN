@@ -2,39 +2,40 @@ namespace ServiceLib.Services.CoreConfig;
 
 public partial class CoreConfigSingboxService
 {
-    private async Task<int> GenInbounds(SingboxConfig singboxConfig)
+    private void GenInbounds()
     {
         try
         {
             var listen = "0.0.0.0";
-            singboxConfig.inbounds = [];
+            var listenPort = AppManager.Instance.GetLocalPort(EInboundProtocol.socks);
+            var isUsingLocalMixedPort = _node.Address == Global.Loopback && _node.Port == listenPort;
+            _coreConfig.inbounds = [];
 
-            if (!_config.TunModeItem.EnableTun
-                || (_config.TunModeItem.EnableTun && _config.TunModeItem.EnableExInbound && AppManager.Instance.RunningCoreType == ECoreType.sing_box))
+            if (!context.IsTunEnabled || !isUsingLocalMixedPort)
             {
                 var inbound = new Inbound4Sbox()
                 {
-                    type = EInboundProtocol.mixed.ToString(),
-                    tag = EInboundProtocol.socks.ToString(),
+                    type = nameof(EInboundProtocol.mixed),
+                    tag = nameof(EInboundProtocol.socks),
                     listen = Global.Loopback,
                 };
-                singboxConfig.inbounds.Add(inbound);
+                _coreConfig.inbounds.Add(inbound);
 
-                inbound.listen_port = AppManager.Instance.GetLocalPort(EInboundProtocol.socks);
+                inbound.listen_port = listenPort;
 
                 if (_config.Inbound.First().SecondLocalPortEnabled)
                 {
-                    var inbound2 = GetInbound(inbound, EInboundProtocol.socks2, true);
-                    singboxConfig.inbounds.Add(inbound2);
+                    var inbound2 = BuildInbound(inbound, EInboundProtocol.socks2, true);
+                    _coreConfig.inbounds.Add(inbound2);
                 }
 
                 if (_config.Inbound.First().AllowLANConn)
                 {
                     if (_config.Inbound.First().NewPort4LAN)
                     {
-                        var inbound3 = GetInbound(inbound, EInboundProtocol.socks3, true);
+                        var inbound3 = BuildInbound(inbound, EInboundProtocol.socks3, true);
                         inbound3.listen = listen;
-                        singboxConfig.inbounds.Add(inbound3);
+                        _coreConfig.inbounds.Add(inbound3);
 
                         //auth
                         if (_config.Inbound.First().User.IsNotEmpty() && _config.Inbound.First().Pass.IsNotEmpty())
@@ -49,7 +50,7 @@ public partial class CoreConfigSingboxService
                 }
             }
 
-            if (_config.TunModeItem.EnableTun)
+            if (context.IsTunEnabled)
             {
                 if (_config.TunModeItem.Mtu <= 0)
                 {
@@ -61,7 +62,7 @@ public partial class CoreConfigSingboxService
                 }
 
                 var tunInbound = JsonUtils.Deserialize<Inbound4Sbox>(EmbedUtils.GetEmbedText(Global.TunSingboxInboundFileName)) ?? new Inbound4Sbox { };
-                tunInbound.interface_name = Utils.IsMacOS() ? $"utun{new Random().Next(99)}" : "singbox_tun";
+                tunInbound.interface_name = context.IsMacOS ? $"utun{new Random().Next(99)}" : "singbox_tun";
                 tunInbound.mtu = _config.TunModeItem.Mtu;
                 tunInbound.auto_route = _config.TunModeItem.AutoRoute;
                 tunInbound.strict_route = _config.TunModeItem.StrictRoute;
@@ -70,23 +71,23 @@ public partial class CoreConfigSingboxService
                 {
                     tunInbound.address = ["172.18.0.1/30"];
                 }
+                tunInbound.route_exclude_address = _config.TunModeItem.RouteExcludeAddress;
 
-                singboxConfig.inbounds.Add(tunInbound);
+                _coreConfig.inbounds.Add(tunInbound);
             }
         }
         catch (Exception ex)
         {
             Logging.SaveLog(_tag, ex);
         }
-        return await Task.FromResult(0);
     }
 
-    private Inbound4Sbox GetInbound(Inbound4Sbox inItem, EInboundProtocol protocol, bool bSocks)
+    private Inbound4Sbox BuildInbound(Inbound4Sbox inItem, EInboundProtocol protocol, bool bSocks)
     {
         var inbound = JsonUtils.DeepCopy(inItem);
         inbound.tag = protocol.ToString();
         inbound.listen_port = inItem.listen_port + (int)protocol;
-        inbound.type = EInboundProtocol.mixed.ToString();
+        inbound.type = nameof(EInboundProtocol.mixed);
         return inbound;
     }
 }

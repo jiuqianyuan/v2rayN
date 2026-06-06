@@ -8,6 +8,7 @@ public class CoreManager
     private static readonly Lazy<CoreManager> _instance = new(() => new());
     public static CoreManager Instance => _instance.Value;
     private Config _config;
+    [SupportedOSPlatform("windows")]
     private WindowsJobService? _processJob;
     private ProcessService? _processService;
     private ProcessService? _processPreService;
@@ -57,16 +58,19 @@ public class CoreManager
         }
     }
 
-    public async Task LoadCore(ProfileItem? node)
+    /// <param name="mainContext">Resolved main context (with pre-socks ports already merged if applicable).</param>
+    /// <param name="preContext">Optional pre-socks context passed to <see cref="CoreStartPreService"/>.</param>
+    public async Task LoadCore(CoreConfigContext? mainContext, CoreConfigContext? preContext)
     {
-        if (node == null)
+        if (mainContext == null)
         {
             await UpdateFunc(false, ResUI.CheckServerSettings);
             return;
         }
 
+        var node = mainContext.Node;
         var fileName = Utils.GetBinConfigPath(Global.CoreConfigFileName);
-        var result = await CoreConfigHandler.GenerateClientConfig(node, fileName);
+        var result = await CoreConfigHandler.GenerateClientConfig(mainContext, fileName);
         if (result.Success != true)
         {
             await UpdateFunc(true, result.Msg);
@@ -85,8 +89,11 @@ public class CoreManager
             await WindowsUtils.RemoveTunDevice();
         }
 
-        await CoreStart(node);
-        await CoreStartPreService(node);
+        await CoreStart(mainContext);
+        await CoreStartPreService(preContext);
+
+        AppManager.Instance.RunningCoreType = preContext?.RunCoreType ?? mainContext.RunCoreType;
+
         if (_processService != null)
         {
             await UpdateFunc(true, $"{node.GetSummary()}");
@@ -95,7 +102,7 @@ public class CoreManager
 
     public async Task<ProcessService?> LoadCoreConfigSpeedtest(List<ServerTestItem> selecteds)
     {
-        var coreType = selecteds.Any(t => Global.SingboxOnlyConfigType.Contains(t.ConfigType)) ? ECoreType.sing_box : ECoreType.Xray;
+        var coreType = selecteds.FirstOrDefault()?.CoreType == ECoreType.sing_box ? ECoreType.sing_box : ECoreType.Xray;
         var fileName = string.Format(Global.CoreSpeedtestConfigFileName, Utils.GetGuid(false));
         var configPath = Utils.GetBinConfigPath(fileName);
         var result = await CoreConfigHandler.GenerateClientSpeedtestConfig(_config, configPath, selecteds, coreType);
@@ -122,13 +129,14 @@ public class CoreManager
 
         var fileName = string.Format(Global.CoreSpeedtestConfigFileName, Utils.GetGuid(false));
         var configPath = Utils.GetBinConfigPath(fileName);
-        var result = await CoreConfigHandler.GenerateClientSpeedtestConfig(_config, node, testItem, configPath);
+        var (context, _) = await CoreConfigContextBuilder.Build(_config, node);
+        var result = await CoreConfigHandler.GenerateClientSpeedtestConfig(_config, context, testItem, configPath);
         if (result.Success != true)
         {
             return null;
         }
 
-        var coreType = AppManager.Instance.GetCoreType(node, node.ConfigType);
+        var coreType = context.RunCoreType;
         var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
         return await RunProcess(coreInfo, fileName, true, false);
     }
@@ -165,9 +173,10 @@ public class CoreManager
 
     #region Private
 
-    private async Task CoreStart(ProfileItem node)
+    private async Task CoreStart(CoreConfigContext context)
     {
-        var coreType = AppManager.Instance.RunningCoreType = AppManager.Instance.GetCoreType(node, node.ConfigType);
+        var node = context.Node;
+        var coreType = AppManager.Instance.GetCoreType(node, node.ConfigType);
         var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
 
         var displayLog = node.ConfigType != EConfigType.Custom || node.DisplayLog;
@@ -179,27 +188,22 @@ public class CoreManager
         _processService = proc;
     }
 
-    private async Task CoreStartPreService(ProfileItem node)
+    private async Task CoreStartPreService(CoreConfigContext? preContext)
     {
-        if (_processService != null && !_processService.HasExited)
+        if (_processService is { HasExited: false } && preContext != null)
         {
-            var coreType = AppManager.Instance.GetCoreType(node, node.ConfigType);
-            var itemSocks = await ConfigHandler.GetPreSocksItem(_config, node, coreType);
-            if (itemSocks != null)
+            var preCoreType = preContext?.Node?.CoreType ?? ECoreType.sing_box;
+            var fileName = Utils.GetBinConfigPath(Global.CorePreConfigFileName);
+            var result = await CoreConfigHandler.GenerateClientConfig(preContext, fileName);
+            if (result.Success)
             {
-                var preCoreType = itemSocks.CoreType ?? ECoreType.sing_box;
-                var fileName = Utils.GetBinConfigPath(Global.CorePreConfigFileName);
-                var result = await CoreConfigHandler.GenerateClientConfig(itemSocks, fileName);
-                if (result.Success)
+                var coreInfo = CoreInfoManager.Instance.GetCoreInfo(preCoreType);
+                var proc = await RunProcess(coreInfo, Global.CorePreConfigFileName, true, true);
+                if (proc is null)
                 {
-                    var coreInfo = CoreInfoManager.Instance.GetCoreInfo(preCoreType);
-                    var proc = await RunProcess(coreInfo, Global.CorePreConfigFileName, true, true);
-                    if (proc is null)
-                    {
-                        return;
-                    }
-                    _processPreService = proc;
+                    return;
                 }
+                _processPreService = proc;
             }
         }
     }
@@ -226,7 +230,7 @@ public class CoreManager
         {
             if (mayNeedSudo
                 && _config.TunModeItem.EnableTun
-                && coreInfo.CoreType == ECoreType.sing_box
+                && (coreInfo.CoreType is ECoreType.sing_box or ECoreType.mihomo)
                 && Utils.IsNonWindows())
             {
                 _linuxSudo = true;

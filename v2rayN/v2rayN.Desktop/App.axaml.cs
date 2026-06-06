@@ -1,3 +1,4 @@
+using v2rayN.Desktop.Common;
 using v2rayN.Desktop.Views;
 
 namespace v2rayN.Desktop;
@@ -24,9 +25,32 @@ public partial class App : Application
 
             desktop.Exit += OnExit;
             desktop.MainWindow = new MainWindow();
+
+            if (OperatingSystem.IsMacOS())
+            {
+                Current?.TryGetFeature<IActivatableLifetime>()?.Activated += OnMacOSActivated;
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void OnMacOSActivated(object? sender, ActivatedEventArgs args)
+    {
+        if (args.Kind != ActivationKind.Reopen)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            ((ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow as MainWindow)?.ShowHideWindow(true);
+
+            if (!AppManager.Instance.Config.UiItem.MacOSShowInDock)
+            {
+                MacAppUtils.SetActivationPolicyAccessory();
+            }
+        });
     }
 
     private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -48,13 +72,17 @@ public partial class App : Application
 
     private async void MenuAddServerViaClipboardClick(object? sender, EventArgs e)
     {
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        try
         {
-            if (desktop.MainWindow != null)
+            if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: not null })
             {
                 AppEvents.AddServerViaClipboardRequested.Publish();
                 await Task.Delay(1000);
             }
+        }
+        catch (Exception ex)
+        {
+            Logging.SaveLog("MenuAddServerViaClipboardClick", ex);
         }
     }
 
