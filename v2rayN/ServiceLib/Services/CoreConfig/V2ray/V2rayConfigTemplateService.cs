@@ -138,10 +138,6 @@ public partial class CoreConfigV2rayService
         {
             return;
         }
-        if (!(context.IsTunEnabled || context.IsWindows))
-        {
-            return;
-        }
         foreach (var outbound in _coreConfig.outbounds ?? [])
         {
             if (!ShouldBindNet(outbound))
@@ -176,6 +172,7 @@ public partial class CoreConfigV2rayService
         {
             return;
         }
+
         foreach (var outbound in _coreConfig.outbounds ?? [])
         {
             outbound.sendThrough = ShouldBindNet(outbound) ? sendThrough : null;

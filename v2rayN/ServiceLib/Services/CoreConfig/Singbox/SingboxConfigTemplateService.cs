@@ -66,10 +66,6 @@ public partial class CoreConfigSingboxService
         {
             return;
         }
-        if (!(context.IsTunEnabled || context.IsWindows))
-        {
-            return;
-        }
         foreach (var outbound in _coreConfig.outbounds ?? [])
         {
             outbound.bind_interface = ShouldBindNet(outbound) ? bindInterface : null;
@@ -83,6 +79,7 @@ public partial class CoreConfigSingboxService
         {
             return;
         }
+
         foreach (var outbound in _coreConfig.outbounds ?? [])
         {
             outbound.inet4_bind_address = ShouldBindNet(outbound) ? sendThrough : null;

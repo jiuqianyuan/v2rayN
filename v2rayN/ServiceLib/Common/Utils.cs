@@ -324,6 +324,29 @@ public class Utils
                     .ReplaceLineBreaks(",");
     }
 
+    public static string ParseProcess(string text)
+    {
+        if (text.IsNullOrEmpty())
+        {
+            return string.Empty;
+        }
+        if (text.StartsWith('"'))
+        {
+            text = text[1..];
+        }
+        if (text.EndsWith('"'))
+        {
+            text = text[..^1];
+        }
+        return List2String(text.Replace("，", ",")
+            .Replace("\\", "/")
+            .ReplaceLineBreaks(",")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.TrimEx())
+            .Where(x => x.IsNotEmpty())
+            .ToList());
+    }
+
     public static List<string> GetEnumNames<TEnum>() where TEnum : Enum
     {
         return Enum.GetValues(typeof(TEnum))
@@ -576,6 +599,58 @@ public class Utils
         }
     }
 
+    public static bool TryParseRange(string? input, int min, int max, out int from, out int to)
+    {
+        from = to = 0;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return true;
+        }
+        var parts = input.Split('-');
+        if (parts.Length == 1)
+        {
+            if (!int.TryParse(parts[0], out from))
+            {
+                return false;
+            }
+            to = from;
+            return from >= min && to <= max;
+        }
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], out from)
+            || !int.TryParse(parts[1], out to))
+        {
+            return false;
+        }
+        return from >= min && to <= max && from <= to;
+    }
+
+    public static bool TryParseMaxSplit(string? input, int min, int max, out int from, out int to)
+    {
+        from = to = 0;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return true;
+        }
+        var parts = input.Split('-');
+        if (parts.Length == 1)
+        {
+            if (!int.TryParse(parts[0], out from))
+            {
+                return false;
+            }
+            to = from;
+            return from >= min && to <= max;
+        }
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], out from)
+            || !int.TryParse(parts[1], out to))
+        {
+            return false;
+        }
+        return from >= min && to <= max && from <= to;
+    }
+
     public static bool IsPrivateNetwork(string ip)
     {
         if (IPAddress.TryParse(ip, out var address))
@@ -714,6 +789,24 @@ public class Utils
         }
 
         return (endpoints, connections);
+    }
+
+    public static bool IsLocalIP(string ipAddress)
+    {
+        if (!IPAddress.TryParse(ipAddress, out var targetAddress))
+        {
+            return false;
+        }
+
+        return NetworkInterface.GetAllNetworkInterfaces()
+               .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
+               .Any(ua => ua.Address.Equals(targetAddress));
+    }
+
+    public static bool ContainsInterfaceName(string inInterfaceName)
+    {
+        return NetworkInterface.GetAllNetworkInterfaces()
+            .Any(ni => ni.Name.Equals(inInterfaceName, StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion Speed Test

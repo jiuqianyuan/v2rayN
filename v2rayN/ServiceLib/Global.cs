@@ -92,6 +92,7 @@ public class Global
     public const string LinuxBash = "/bin/bash";
     public const string StringTrue = "true";
     public const string StringFalse = "false";
+    public const int SqliteMaxBatchSize = 10000;
 
     public const string SingboxDirectDNSTag = "direct_dns";
     public const string SingboxRemoteDNSTag = "remote_dns";
@@ -209,6 +210,10 @@ public class Global
     };
 
     public const string Hysteria2ProtocolShare = "hy2://";
+
+    public const string Hysteria2RealmProtocolShare = "hysteria2+realm://";
+
+    public const string Hysteria2HttpRealmProtocolShare = "hysteria2+realm+http://";
 
     public const string NaiveHttpsProtocolShare = "naive+https://";
 
@@ -406,6 +411,16 @@ public class Global
         ""
     ];
 
+    public static readonly List<string> FragmentPacketsOptions =
+    [
+        "tlshello",
+        "1-1",
+        "1-2",
+        "1-3",
+        "1-4",
+        "1-5"
+    ];
+
     public static readonly List<string> UserAgent =
     [
         "chrome",
@@ -476,7 +491,8 @@ public class Global
         "fa",
         "fr",
         "ru",
-        "hu"
+        "hu",
+        "id"
     ];
 
     public static readonly List<string> Alpns =
@@ -664,6 +680,14 @@ public class Global
         "mcbe:play.craftersmc.net",
         "mcbe:mps.lemoncloud.net",
         "mcbe:bedrock.talonmc.net",
+    ];
+
+    public static readonly List<string> DefaultRealmStunList =
+    [
+        "turn.cloudflare.com:3478",
+        "stun.nextcloud.com:3478",
+        "stun.sip.us:3478",
+        "global.stun.twilio.com:3478",
     ];
 
     public static readonly List<string> OutboundTags =
