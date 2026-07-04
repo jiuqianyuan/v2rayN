@@ -149,17 +149,28 @@ public class DownloadService
     }
 
     /// <summary>
-    /// Downloads string content via HttpClient.
+    /// Downloads string content via HttpClient, with RFC 8305 (Happy Eyeballs) connect strategy
+    /// to avoid hanging on a blocked/blackholed IPv6 route.
     /// </summary>
     private async Task<string?> DownloadStringAsync(string url, IWebProxy? webProxy, string userAgent, int timeout)
     {
         try
         {
-            var client = new HttpClient(new SocketsHttpHandler()
+            var perAttemptTimeout = TimeSpan.FromSeconds(Math.Max(2, Math.Min(5, timeout / 2)));
+
+            var webRequestHandler = new SocketsHttpHandler
             {
                 Proxy = webProxy,
-                UseProxy = webProxy != null
-            });
+                UseProxy = webProxy != null,
+                ConnectTimeout = TimeSpan.FromSeconds(timeout),
+                ConnectCallback = async (context, cancellationToken) =>
+                {
+                    var socket = await HappyEyeballsConnectAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, perAttemptTimeout, cancellationToken);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+            };
+
+            using var client = new HttpClient(webRequestHandler);
 
             if (userAgent.IsNullOrEmpty())
             {
@@ -188,6 +199,122 @@ public class DownloadService
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// RFC 8305 Happy Eyeballs: race IPv6/IPv4 connection attempts concurrently.
+    /// Each individual attempt has a hard timeout so a blackholed address family
+    /// (e.g. IPv6 silently dropped by firewall/ISP) can never stall the whole request.
+    /// </summary>
+    private static async Task<Socket> HappyEyeballsConnectAsync(string host, int port, TimeSpan perAttemptTimeout, CancellationToken cancellationToken)
+    {
+        var addresses = IPAddress.TryParse(host, out var literal)
+            ? [literal]
+            : await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+
+        if (addresses.Length == 0)
+        {
+            throw new SocketException((int)SocketError.HostNotFound);
+        }
+
+        var ipv6 = addresses.Where(a => a.AddressFamily == AddressFamily.InterNetworkV6).ToList();
+        var ipv4 = addresses.Where(a => a.AddressFamily == AddressFamily.InterNetwork).ToList();
+
+        using var raceCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var attempts = new List<(Task<Socket?> Task, CancellationTokenSource Cts)>();
+
+        void StartFamily(List<IPAddress> family)
+        {
+            foreach (var ip in family)
+            {
+                var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(raceCts.Token);
+                attemptCts.CancelAfter(perAttemptTimeout); // hard per-address cap, this is what fixes the 30s hang
+                attempts.Add((ConnectSingleAsync(ip, port, attemptCts.Token), attemptCts));
+            }
+        }
+
+        try
+        {
+            // Prefer IPv6 first per RFC 8305, but never let it block indefinitely.
+            var primary = ipv6.Count > 0 ? ipv6 : ipv4;
+            var secondary = ipv6.Count > 0 ? ipv4 : ipv6;
+
+            StartFamily(primary);
+
+            if (secondary.Count > 0)
+            {
+                var delayTask = Task.Delay(TimeSpan.FromMilliseconds(250), raceCts.Token);
+                var winner = await RaceForWinnerAsync(attempts, delayTask).ConfigureAwait(false);
+                if (winner != null)
+                {
+                    return winner;
+                }
+                // Primary family didn't succeed within the short window (still may be pending/blackholed) -> start secondary now.
+                StartFamily(secondary);
+            }
+
+            while (attempts.Count > 0)
+            {
+                var finishedTask = await Task.WhenAny(attempts.Select(a => (Task)a.Task)).ConfigureAwait(false);
+                var finished = attempts.First(a => (Task)a.Task == finishedTask);
+                attempts.Remove(finished);
+
+                var socket = await finished.Task.ConfigureAwait(false);
+                finished.Cts.Dispose();
+                if (socket != null)
+                {
+                    return socket;
+                }
+            }
+
+            throw new SocketException((int)SocketError.TimedOut);
+        }
+        finally
+        {
+            raceCts.Cancel(); // cancel every still-running attempt (including a stuck IPv6 handshake) once we have a winner
+            foreach (var (_, attemptCts) in attempts)
+            {
+                attemptCts.Dispose();
+            }
+        }
+    }
+
+    private static async Task<Socket?> RaceForWinnerAsync(List<(Task<Socket?> Task, CancellationTokenSource Cts)> attempts, Task delayTask)
+    {
+        var pending = attempts.Select(a => (Task)a.Task).Append(delayTask).ToList();
+        while (pending.Count > 1)
+        {
+            var completed = await Task.WhenAny(pending).ConfigureAwait(false);
+            if (completed == delayTask)
+            {
+                return null; // window elapsed, let the caller start the other family
+            }
+
+            pending.Remove(completed);
+            var attempt = attempts.First(a => (Task)a.Task == completed);
+            var socket = await attempt.Task.ConfigureAwait(false);
+            if (socket != null)
+            {
+                return socket;
+            }
+            // fast-failed (e.g. immediate ICMP unreachable/RST) - keep waiting within the window for siblings
+        }
+        return null;
+    }
+
+    private static async Task<Socket?> ConnectSingleAsync(IPAddress ip, int port, CancellationToken token)
+    {
+        var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(new IPEndPoint(ip, port), token).ConfigureAwait(false);
+            return socket;
+        }
+        catch
+        {
+            socket.Dispose();
+            return null;
+        }
     }
 
     /// <summary>
