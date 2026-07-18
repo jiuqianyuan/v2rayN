@@ -1,31 +1,35 @@
 namespace ServiceLib.ViewModels;
 
-public class DNSSettingViewModel : MyReactiveObject
+public class DNSSettingViewModel : MyReactiveObject, ICloseable
 {
-    [Reactive] public bool? UseSystemHosts { get; set; }
-    [Reactive] public bool? AddCommonHosts { get; set; }
-    [Reactive] public bool? FakeIP { get; set; }
-    [Reactive] public bool? BlockBindingQuery { get; set; }
-    [Reactive] public string? DirectDNS { get; set; }
-    [Reactive] public string? RemoteDNS { get; set; }
-    [Reactive] public string? BootstrapDNS { get; set; }
-    [Reactive] public string? Strategy4Freedom { get; set; }
-    [Reactive] public string? Strategy4Proxy { get; set; }
-    [Reactive] public string? Hosts { get; set; }
-    [Reactive] public string? DirectExpectedIPs { get; set; }
-    [Reactive] public bool? ParallelQuery { get; set; }
-    [Reactive] public bool? ServeStale { get; set; }
+    public event EventHandler? RequestClose;
+
+    [Reactive] public bool UseSystemHosts { get; set; }
+    [Reactive] public bool AddCommonHosts { get; set; }
+    [Reactive] public bool FakeIP { get; set; }
+    [Reactive] public bool BlockBindingQuery { get; set; }
+    [Reactive] public string DirectDNS { get; set; }
+    [Reactive] public string RemoteDNS { get; set; }
+    [Reactive] public string BootstrapDNS { get; set; }
+    [Reactive] public string Strategy4Freedom { get; set; }
+    [Reactive] public string Strategy4Proxy { get; set; }
+    [Reactive] public string Strategy4ProxyDial { get; set; }
+    [Reactive] public string Hosts { get; set; }
+    [Reactive] public string DirectExpectedIPs { get; set; }
+    [Reactive] public bool ParallelQuery { get; set; }
+    [Reactive] public bool ServeStale { get; set; }
+    [Reactive] public bool EnableHappyEyeballs { get; set; }
 
     [Reactive] public bool UseSystemHostsCompatible { get; set; }
-    [Reactive] public string DomainStrategy4FreedomCompatible { get; set; }
-    [Reactive] public string DomainDNSAddressCompatible { get; set; }
-    [Reactive] public string NormalDNSCompatible { get; set; }
-    [Reactive] public string TunDNSCompatible { get; set; }
+    [Reactive] public string DomainStrategy4FreedomCompatible { get; set; } = string.Empty;
+    [Reactive] public string DomainDNSAddressCompatible { get; set; } = string.Empty;
+    [Reactive] public string NormalDNSCompatible { get; set; } = string.Empty;
+    [Reactive] public string TunDNSCompatible { get; set; } = string.Empty;
 
-    [Reactive] public string DomainStrategy4Freedom2Compatible { get; set; }
-    [Reactive] public string DomainDNSAddress2Compatible { get; set; }
-    [Reactive] public string NormalDNS2Compatible { get; set; }
-    [Reactive] public string TunDNS2Compatible { get; set; }
+    [Reactive] public string DomainStrategy4Freedom2Compatible { get; set; } = string.Empty;
+    [Reactive] public string DomainDNSAddress2Compatible { get; set; } = string.Empty;
+    [Reactive] public string NormalDNS2Compatible { get; set; } = string.Empty;
+    [Reactive] public string TunDNS2Compatible { get; set; } = string.Empty;
     [Reactive] public bool RayCustomDNSEnableCompatible { get; set; }
     [Reactive] public bool SBCustomDNSEnableCompatible { get; set; }
 
@@ -35,10 +39,9 @@ public class DNSSettingViewModel : MyReactiveObject
     public ReactiveCommand<Unit, Unit> ImportDefConfig4V2rayCompatibleCmd { get; }
     public ReactiveCommand<Unit, Unit> ImportDefConfig4SingboxCompatibleCmd { get; }
 
-    public DNSSettingViewModel(Func<EViewAction, object?, Task<bool>>? updateView)
+    public DNSSettingViewModel()
     {
         _config = AppManager.Instance.Config;
-        _updateView = updateView;
         SaveCmd = ReactiveCommand.CreateFromTask(SaveSettingAsync);
 
         ImportDefConfig4V2rayCompatibleCmd = ReactiveCommand.CreateFromTask(async () =>
@@ -66,20 +69,21 @@ public class DNSSettingViewModel : MyReactiveObject
     {
         _config = AppManager.Instance.Config;
         var item = _config.SimpleDNSItem;
-        UseSystemHosts = item.UseSystemHosts;
-        AddCommonHosts = item.AddCommonHosts;
-        FakeIP = item.FakeIP;
-        BlockBindingQuery = item.BlockBindingQuery;
-        DirectDNS = item.DirectDNS;
-        RemoteDNS = item.RemoteDNS;
-        BootstrapDNS = item.BootstrapDNS;
-        Strategy4Freedom = item.Strategy4Freedom;
-        Strategy4Proxy = item.Strategy4Proxy;
-        Hosts = item.Hosts;
-        DirectExpectedIPs = item.DirectExpectedIPs;
-        ParallelQuery = item.ParallelQuery;
-        ServeStale = item.ServeStale;
-
+        UseSystemHosts = item.UseSystemHosts ?? false;
+        AddCommonHosts = item.AddCommonHosts ?? false;
+        FakeIP = item.FakeIP ?? false;
+        BlockBindingQuery = item.BlockBindingQuery ?? false;
+        DirectDNS = item.DirectDNS ?? string.Empty;
+        RemoteDNS = item.RemoteDNS ?? string.Empty;
+        BootstrapDNS = item.BootstrapDNS ?? string.Empty;
+        Strategy4Freedom = item.Strategy4Freedom ?? string.Empty;
+        Strategy4Proxy = item.Strategy4Proxy ?? string.Empty;
+        Strategy4ProxyDial = item.Strategy4ProxyDial ?? string.Empty;
+        Hosts = item.Hosts ?? string.Empty;
+        DirectExpectedIPs = item.DirectExpectedIPs ?? string.Empty;
+        ParallelQuery = item.ParallelQuery ?? false;
+        ServeStale = item.ServeStale ?? false;
+        EnableHappyEyeballs = item.EnableHappyEyeballs ?? false;
         var item1 = await AppManager.Instance.GetDNSItem(ECoreType.Xray);
         RayCustomDNSEnableCompatible = item1.Enabled;
         UseSystemHostsCompatible = item1.UseSystemHosts;
@@ -107,11 +111,12 @@ public class DNSSettingViewModel : MyReactiveObject
         _config.SimpleDNSItem.BootstrapDNS = BootstrapDNS;
         _config.SimpleDNSItem.Strategy4Freedom = Strategy4Freedom;
         _config.SimpleDNSItem.Strategy4Proxy = Strategy4Proxy;
+        _config.SimpleDNSItem.Strategy4ProxyDial = Strategy4ProxyDial;
         _config.SimpleDNSItem.Hosts = Hosts;
         _config.SimpleDNSItem.DirectExpectedIPs = DirectExpectedIPs;
         _config.SimpleDNSItem.ParallelQuery = ParallelQuery;
         _config.SimpleDNSItem.ServeStale = ServeStale;
-
+        _config.SimpleDNSItem.EnableHappyEyeballs = EnableHappyEyeballs;
         if (NormalDNSCompatible.IsNotEmpty())
         {
             var obj = JsonUtils.ParseJson(NormalDNSCompatible);
@@ -183,9 +188,6 @@ public class DNSSettingViewModel : MyReactiveObject
         await ConfigHandler.SaveDNSItems(_config, item2);
 
         await ConfigHandler.SaveConfig(_config);
-        if (_updateView != null)
-        {
-            await _updateView(EViewAction.CloseWindow, null);
-        }
+        RequestClose?.Invoke(this, EventArgs.Empty);
     }
 }

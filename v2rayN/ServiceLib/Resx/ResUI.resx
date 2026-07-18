@@ -1044,6 +1044,12 @@
   <data name="TbHeaderType8" xml:space="preserve">
     <value>Congestion control</value>
   </data>
+  <data name="TbHttpOutboundHeaders" xml:space="preserve">
+    <value>HTTP headers</value>
+  </data>
+  <data name="TipHttpOutboundHeaders" xml:space="preserve">
+    <value>Custom HTTP outbound request headers as a JSON object with string or string array values.</value>
+  </data>
   <data name="LvPrevProfile" xml:space="preserve">
     <value>Previous proxy remarks</value>
   </data>
@@ -1806,10 +1812,34 @@ The "Get Certificate" action may fail if a self-signed certificate is used or if
   <data name="InvalidHy2RealmUrl" xml:space="preserve">
     <value>Invalid Realm URL.</value>
   </data>
+  <data name="InvalidHttpOutboundHeaders" xml:space="preserve">
+    <value>Please enter valid HTTP request headers JSON.</value>
+  </data>
   <data name="TbHy2RealmUrlTip" xml:space="preserve">
     <value>Format: realm://&lt;token&gt;@&lt;rendezvous-host&gt;[:port]/&lt;realm-name&gt;?stun=&lt;stun-host&gt;[:port]</value>
   </data>
   <data name="TbGeckoPacketSize" xml:space="preserve">
     <value>Gecko Packet Size (min/max)</value>
+  </data>
+  <data name="TbLegacyProtectTip" xml:space="preserve">
+    <value>If enabled, use sing-box TUN; otherwise, use xray TUN.</value>
+  </data>
+  <data name="TbRootCertificateProvider" xml:space="preserve">
+    <value>Root Certificate Provider</value>
+  </data>
+  <data name="TbRootCertificateProviderTip" xml:space="preserve">
+    <value>Only applies to the v2rayN GUI's downloads and network requests. Does not affect the core's certificate validation.</value>
+  </data>
+  <data name="TbProxyDialResolveStrategy" xml:space="preserve">
+    <value>Proxy Dial Resolution Strategy</value>
+  </data>
+  <data name="TbProxyDialResolveStrategyTip" xml:space="preserve">
+    <value>Not recommended; may cause routing loops.</value>
+  </data>
+  <data name="TbEnableHappyEyeballs" xml:space="preserve">
+    <value>Enable Happy Eyeballs</value>
+  </data>
+  <data name="TbEnableHappyEyeballsTip" xml:space="preserve">
+    <value>Requires the UseIP Strategy. When enabled, it attempts IPv4 and IPv6 connections simultaneously and automatically selects the faster available path.</value>
   </data>
 </root>

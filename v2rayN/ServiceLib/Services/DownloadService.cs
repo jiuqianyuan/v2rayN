@@ -80,7 +80,13 @@ public class DownloadService
             AllowAutoRedirect = false,
             Proxy = await GetWebProxy(blProxy)
         };
-        var client = new HttpClient(webRequestHandler);
+        var certificateChainPolicy = CertPemManager.Instance.BuildCertificateChainPolicy();
+        if (certificateChainPolicy != null)
+        {
+            webRequestHandler.SslOptions.CertificateChainPolicy = certificateChainPolicy;
+            webRequestHandler.SslOptions.RemoteCertificateValidationCallback = null;
+        }
+        using var client = new HttpClient(webRequestHandler);
 
         var response = await client.GetAsync(url);
         if (response.StatusCode == HttpStatusCode.Redirect && response.Headers.Location is not null)
@@ -109,9 +115,10 @@ public class DownloadService
     /// </summary>
     public async Task<string?> TryDownloadString(string url, IWebProxy? webProxy, string userAgent)
     {
+        var timeout = 15;
         try
         {
-            var result1 = await DownloadStringAsync(url, webProxy, userAgent, 15);
+            var result1 = await DownloadStringAsync(url, webProxy, userAgent, timeout);
             if (result1.IsNotEmpty())
             {
                 return result1;
@@ -129,7 +136,7 @@ public class DownloadService
 
         try
         {
-            var result2 = await DownloadStringViaDownloader(url, webProxy, userAgent, 15);
+            var result2 = await DownloadStringViaDownloader(url, webProxy, userAgent, timeout);
             if (result2.IsNotEmpty())
             {
                 return result2;
@@ -156,21 +163,30 @@ public class DownloadService
     {
         try
         {
-            var perAttemptTimeout = TimeSpan.FromSeconds(Math.Max(2, Math.Min(5, timeout / 2)));
-
-            var webRequestHandler = new SocketsHttpHandler
+            var connectTimeout = Math.Clamp(timeout / 5, 2, 5);
+            var handler = new SocketsHttpHandler
             {
                 Proxy = webProxy,
                 UseProxy = webProxy != null,
-                ConnectTimeout = TimeSpan.FromSeconds(timeout),
+                ConnectTimeout = TimeSpan.FromSeconds(connectTimeout),
                 ConnectCallback = async (context, cancellationToken) =>
                 {
-                    var socket = await HappyEyeballsConnectAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, perAttemptTimeout, cancellationToken);
+                    var socket = await HappyEyeballsConnectAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, TimeSpan.FromSeconds(connectTimeout), cancellationToken);
                     return new NetworkStream(socket, ownsSocket: true);
                 }
+                
             };
+            var certificateChainPolicy = CertPemManager.Instance.BuildCertificateChainPolicy();
+            if (certificateChainPolicy != null)
+            {
+                handler.SslOptions.CertificateChainPolicy = certificateChainPolicy;
+                handler.SslOptions.RemoteCertificateValidationCallback = null;
+            }
 
-            using var client = new HttpClient(webRequestHandler);
+            using var client = new HttpClient(handler)
+            {
+                Timeout = Timeout.InfiniteTimeSpan
+            };
 
             if (userAgent.IsNullOrEmpty())
             {
@@ -186,8 +202,9 @@ public class DownloadService
             }
 
             using var cts = new CancellationTokenSource();
-            var result = await client.GetStringAsync(url, cts.Token).WaitAsync(TimeSpan.FromSeconds(timeout), cts.Token);
-            return result;
+            cts.CancelAfter(TimeSpan.FromSeconds(timeout));
+
+            return await client.GetStringAsync(url, cts.Token);
         }
         catch (Exception ex)
         {
@@ -198,6 +215,7 @@ public class DownloadService
                 Error?.Invoke(this, new ErrorEventArgs(ex.InnerException));
             }
         }
+
         return null;
     }
 

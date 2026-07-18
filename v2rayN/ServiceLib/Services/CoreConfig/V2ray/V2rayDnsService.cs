@@ -43,11 +43,7 @@ public partial class CoreConfigV2rayService
                 var outbound = _coreConfig.outbounds.FirstOrDefault(t => t is { protocol: "freedom", tag: Global.DirectTag });
                 if (outbound != null)
                 {
-                    outbound.settings = new()
-                    {
-                        domainStrategy = strategy4Freedom,
-                        userLevel = 0
-                    };
+                    FillSockoptDomainStrategy(outbound, strategy4Freedom);
                 }
             }
 
@@ -62,6 +58,22 @@ public partial class CoreConfigV2rayService
                     .Where(t => xraySupportConfigTypeNames.Contains(t.protocol))
                     .ToList()
                     .ForEach(outbound => outbound.targetStrategy = strategy4Proxy);
+            }
+
+            var strategy4DialProxy = simpleDnsItem?.Strategy4ProxyDial ?? Global.AsIs;
+            //Outbound DialProxy domainStrategy
+            if (strategy4DialProxy.IsNotEmpty() && strategy4DialProxy != Global.AsIs)
+            {
+                var xraySupportConfigTypeNames = Global.XraySupportConfigType
+                        .Select(x => x == EConfigType.Hysteria2 ? "hysteria" : Global.ProtocolTypes[x])
+                        .ToHashSet();
+                _coreConfig.outbounds
+                    .Where(t => xraySupportConfigTypeNames.Contains(t.protocol))
+                    .ToList()
+                    .ForEach(outbound =>
+                    {
+                        FillSockoptDomainStrategy(outbound, strategy4DialProxy);
+                    });
             }
 
             FillDnsServers(dnsItem);
@@ -384,11 +396,9 @@ public partial class CoreConfigV2rayService
                 var outbound = _coreConfig.outbounds.FirstOrDefault(t => t is { protocol: "freedom", tag: Global.DirectTag });
                 if (outbound != null)
                 {
-                    outbound.settings = new()
-                    {
-                        domainStrategy = domainStrategy4Freedom,
-                        userLevel = 0,
-                    };
+                    outbound.streamSettings ??= new();
+                    outbound.streamSettings.sockopt ??= new();
+                    outbound.streamSettings.sockopt.domainStrategy = domainStrategy4Freedom;
                 }
             }
 
@@ -470,5 +480,29 @@ public partial class CoreConfigV2rayService
             domains = domainList.ToList(),
         };
         servers.AsArray().Add(JsonUtils.SerializeToNode(dnsServer));
+    }
+
+    private void FillSockoptDomainStrategy(Outbounds4Ray outbound, string? domainStrategy, bool skipHappyEyeballs = false)
+    {
+        if (domainStrategy.IsNullOrEmpty())
+        {
+            return;
+        }
+        outbound.streamSettings ??= new();
+        outbound.streamSettings.sockopt ??= new();
+        var sockopt = outbound.streamSettings.sockopt;
+        sockopt.domainStrategy = domainStrategy;
+
+        if (skipHappyEyeballs || _config.SimpleDNSItem.EnableHappyEyeballs != true)
+        {
+            return;
+        }
+        var happyEyeballsItem = _config.HappyEyeballs4RayItem;
+        sockopt.happyEyeballs ??= new();
+        var happyEyeballs = sockopt.happyEyeballs;
+        happyEyeballs.tryDelayMs = happyEyeballsItem.TryDelayMs;
+        happyEyeballs.prioritizeIPv6 = happyEyeballsItem.PrioritizeIPv6;
+        happyEyeballs.interleave = happyEyeballsItem.Interleave;
+        happyEyeballs.maxConcurrentTry = happyEyeballsItem.MaxConcurrentTry;
     }
 }

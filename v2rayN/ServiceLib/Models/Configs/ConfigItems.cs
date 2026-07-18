@@ -74,6 +74,7 @@ public class GUIItem
     public int TrayMenuServersLimit { get; set; } = 20;
     public bool EnableHWA { get; set; } = false;
     public bool EnableLog { get; set; } = true;
+    public string? RootCertProvider { get; set; }
 }
 
 [Serializable]
@@ -102,6 +103,7 @@ public class UIItem
     public bool MacOSShowInDock { get; set; }
     public List<ColumnItem> MainColumnItem { get; set; }
     public List<WindowSizeItem> WindowSizeItem { get; set; }
+    public bool HideColumnIpInfo { get; set; }
 }
 
 [Serializable]
@@ -247,9 +249,14 @@ public class CheckUpdateItem
 public class Fragment4RayItem
 {
     public string? Packets { get; set; }
+    public List<string>? Lengths { get; set; }
+    public List<string>? Delays { get; set; }
+    public string? MaxSplit { get; set; }
+
+    // For migration from old version, remove those properties in the future
     public string? Length { get; set; }
     public string? Interval { get; set; }
-    public string? MaxSplit { get; set; }
+    // migration end
 }
 
 [Serializable]
@@ -273,8 +280,19 @@ public class SimpleDNSItem
     public string? BootstrapDNS { get; set; }
     public string? Strategy4Freedom { get; set; }
     public string? Strategy4Proxy { get; set; }
+    public string? Strategy4ProxyDial { get; set; }
     public bool? ServeStale { get; set; }
     public bool? ParallelQuery { get; set; }
     public string? Hosts { get; set; }
     public string? DirectExpectedIPs { get; set; }
+    public bool? EnableHappyEyeballs { get; set; }
+}
+
+[Serializable]
+public class HappyEyeballs4RayItem
+{
+    public int? TryDelayMs { get; set; }
+    public bool? PrioritizeIPv6 { get; set; }
+    public int? Interleave { get; set; }
+    public int? MaxConcurrentTry { get; set; }
 }
